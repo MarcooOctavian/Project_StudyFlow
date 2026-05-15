@@ -17,6 +17,8 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('theme_mode')->default('light');
+            $table->foreignId('current_quote_id')->nullable()->constrained('daily_quotes')->nullOnDelete();
             $table->rememberToken();
             $table->timestamps();
         });
