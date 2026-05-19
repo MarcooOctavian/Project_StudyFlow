@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
         Schema::create('pomodoro_sessions', function (Blueprint $table) {
@@ -21,7 +24,7 @@ return new class extends Migration
         Schema::create('quests', function (Blueprint $table) {
             $table->id();
             $table->string('title');
-            $table->string('type'); // daily, weekly, milestone
+            $table->enum('type', ['daily', 'weekly', 'milestone']);
             $table->integer('goal_value');
             $table->integer('points_reward')->default(0);
             $table->timestamps();
@@ -38,6 +41,9 @@ return new class extends Migration
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('user_quest_progress');
