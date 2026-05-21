@@ -1,17 +1,899 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Dashboard') }}
-        </h2>
-    </x-slot>
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" x-data="{ 
+    darkTheme: true,
+    lampOn: true,
+    mugSteam: true,
+    activeCategory: '',
+    activeStatus: 'todo',
+    searchQuery: '',
+    showNoteModal: false,
+    selectedNote: { id: null, title: '', content: '' },
+    isTimerRunning: false,
+    timerDuration: 1500, // 25 mins
+    timerMinutes: 25,
+    timerSeconds: 0,
+    timerInterval: null,
+    audioPlaying: false,
+    audioSource: 'https://stream.zeno.fm/0r0xa792kwzuv', // Lofi radio
+    audioVolume: 0.5,
+    activeTrack: 'lofi',
+    points: {{ $user->total_points ?? 0 }},
+    tasks: {{ json_encode($tasks->map(function($t) {
+        return [
+            'id' => $t->id,
+            'title' => $t->title,
+            'description' => $t->description,
+            'status' => $t->status,
+            'priority' => $t->priority_level,
+            'category_id' => $t->category_id,
+            'due_date' => $t->due_date ? $t->due_date->format('Y-m-d') : null,
+        ];
+    })) }},
+    notes: {{ json_encode($notes->map(function($n) {
+        return [
+            'id' => $n->id,
+            'title' => $n->title,
+            'content' => $n->content,
+        ];
+    })) }},
+    quests: {{ json_encode($quests->map(function($q) {
+        return [
+            'id' => $q->id,
+            'title' => $q->title,
+            'type' => $q->type,
+            'goal_value' => $q->goal_value,
+            'points_reward' => $q->points_reward,
+            'current_value' => $q->current_value,
+            'completed' => (bool)$q->completed,
+        ];
+    })) }},
+    showAddTaskModal: false,
+    newTask: { title: '', priority: 'low', category_id: '', due_date: '' },
 
-    <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6 text-gray-900">
-                    {{ __("You're logged in!") }}
+    async toggleTaskStatus(task, newStatus) {
+        const oldStatus = task.status;
+        task.status = newStatus;
+        try {
+            const res = await fetch(`/dashboard/tasks/${task.id}/toggle`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ status: newStatus })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.points = data.points;
+                this.quests = data.quests.map(q => ({
+                    id: q.id,
+                    title: q.title,
+                    type: q.type,
+                    goal_value: q.goal_value,
+                    points_reward: q.points_reward,
+                    current_value: q.current_value,
+                    completed: !!q.completed,
+                }));
+                task.status = data.task.status;
+            } else {
+                task.status = oldStatus;
+            }
+        } catch (err) {
+            task.status = oldStatus;
+            console.error(err);
+        }
+    },
+
+    async saveTaskDb() {
+        if (!this.newTask.title) return;
+        try {
+            const res = await fetch('/dashboard/tasks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({
+                    title: this.newTask.title,
+                    priority_level: this.newTask.priority,
+                    category_id: this.newTask.category_id || null,
+                    due_date: this.newTask.due_date || null
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.tasks = data.tasks;
+                this.points = data.points;
+                this.newTask = { title: '', priority: 'low', category_id: '', due_date: '' };
+                this.showAddTaskModal = false;
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    },
+
+    async saveNoteDb() {
+        if (!this.selectedNote.title) return;
+        try {
+            const res = await fetch('/dashboard/notes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({
+                    id: this.selectedNote.id,
+                    title: this.selectedNote.title,
+                    content: this.selectedNote.content
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.notes = data.notes;
+                this.showNoteModal = false;
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    },
+
+    async deleteNoteDb(id) {
+        if (!confirm('Are you sure you want to delete this note?')) return;
+        try {
+            const res = await fetch(`/dashboard/notes/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.notes = data.notes;
+                this.showNoteModal = false;
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    },
+
+    async completePomodoroDb() {
+        try {
+            const res = await fetch('/dashboard/pomodoro/complete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.points = data.points;
+                this.quests = data.quests.map(q => ({
+                    id: q.id,
+                    title: q.title,
+                    type: q.type,
+                    goal_value: q.goal_value,
+                    points_reward: q.points_reward,
+                    current_value: q.current_value,
+                    completed: !!q.completed,
+                }));
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+}" :class="darkTheme ? 'dark' : ''">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <title>StudyFlow - Cozy Dashboard</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css?family=Outfit:300,400,500,600,700|Quicksand:400,500,600,700&display=swap" rel="stylesheet">
+
+    <!-- CSS / JS Scripts -->
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <!-- Font Family Styling Override -->
+    <style>
+        body {
+            font-family: 'Outfit', 'Quicksand', sans-serif;
+            transition: background-color 0.8s ease, color 0.8s ease;
+        }
+
+        /* Glassmorphism Styles */
+        .glass-panel {
+            background: rgba(25, 18, 42, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .light .glass-panel {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
+
+        /* Steam animation for Coffee Cup */
+        @keyframes steam {
+            0% { transform: translateY(0) scaleX(1); opacity: 0; }
+            15% { opacity: 0.5; }
+            50% { transform: translateY(-10px) scaleX(1.2); opacity: 0.3; }
+            95% { opacity: 0; }
+            100% { transform: translateY(-20px) scaleX(1.5); opacity: 0; }
+        }
+        .steam-line {
+            animation: steam 3s infinite ease-out;
+        }
+        .steam-line:nth-child(2) { animation-delay: 1s; }
+        .steam-line:nth-child(3) { animation-delay: 2s; }
+
+        /* Rain animation in window */
+        @keyframes rain {
+            0% { transform: translateY(-20px); opacity: 0.8; }
+            100% { transform: translateY(120px); opacity: 0.2; }
+        }
+        .rain-drop {
+            animation: rain 0.8s infinite linear;
+        }
+
+        /* Ambient neon glows */
+        .neon-glow-indigo {
+            box-shadow: 0 0 25px rgba(99, 102, 241, 0.35);
+        }
+        .neon-glow-pink {
+            box-shadow: 0 0 25px rgba(236, 72, 153, 0.35);
+        }
+
+        /* Circular progress ring */
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden"
+    :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'">
+
+    <!-- Immersive Header Panel -->
+    <header class="w-full px-6 py-4 flex justify-between items-center z-10">
+        <!-- Logo / Brand -->
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300"
+                 :class="darkTheme ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-amber-500/20 text-amber-700 border border-amber-500/30'">
+                <x-heroicon-o-sparkles class="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+                <span class="text-xl font-bold tracking-wider uppercase block" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">StudyFlow</span>
+                <span class="text-xs tracking-widest block uppercase font-semibold" :class="darkTheme ? 'text-slate-400' : 'text-amber-600/80'">Lo-Fi Study Space</span>
+            </div>
+        </div>
+
+        <!-- Quote Area -->
+        <div class="hidden md:flex flex-col items-center max-w-lg text-center px-4">
+            <span class="text-xs uppercase tracking-widest font-bold" :class="darkTheme ? 'text-indigo-400/80' : 'text-amber-700/80'">Daily Motivation</span>
+            <p class="text-sm italic font-medium transition-all duration-300" :class="darkTheme ? 'text-slate-300 hover:text-indigo-300' : 'text-slate-700 hover:text-amber-800'">
+                "{{ $quote->quote_text ?? 'Make today worth remembering.' }}"
+            </p>
+            <span class="text-xs font-semibold mt-1" :class="darkTheme ? 'text-indigo-300/60' : 'text-amber-600'">— {{ $quote->author ?? 'StudyFlow' }}</span>
+        </div>
+
+        <!-- User Info / Actions -->
+        <div class="flex items-center space-x-4">
+            <!-- Points Panel -->
+            <div class="flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all duration-300"
+                 :class="darkTheme ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-200' : 'bg-amber-50 border-amber-200 text-amber-800'">
+                <x-heroicon-o-trophy class="w-4 h-4 text-yellow-400" />
+                <span><span x-text="points"></span> XP</span>
+            </div>
+
+            <!-- Dark Theme Toggle -->
+            <button @click="darkTheme = !darkTheme" 
+                    class="p-2 rounded-xl border transition-all duration-300 hover:scale-105"
+                    :class="darkTheme ? 'bg-slate-800/60 border-slate-700 text-yellow-400 hover:bg-slate-800' : 'bg-white border-amber-200 text-indigo-900 hover:bg-amber-50'">
+                <template x-if="darkTheme">
+                    <x-heroicon-o-sun class="w-5 h-5" />
+                </template>
+                <template x-if="!darkTheme">
+                    <x-heroicon-o-moon class="w-5 h-5" />
+                </template>
+            </button>
+
+            <!-- Logout -->
+            <form method="POST" action="{{ route('logout') }}" class="inline">
+                @csrf
+                <button type="submit" 
+                        class="p-2 rounded-xl border transition-all duration-300 hover:scale-105"
+                        :class="darkTheme ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20' : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'">
+                    <x-heroicon-o-arrow-left-on-rectangle class="w-5 h-5" />
+                </button>
+            </form>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="w-full flex-grow px-6 py-2 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        
+        <!-- Left Side: Tasks & Progress -->
+        <section class="lg:col-span-4 flex flex-col space-y-4">
+            <!-- Progress Panel -->
+            <div class="glass-panel rounded-2xl p-5 flex items-center justify-between transition-all duration-300">
+                <div class="space-y-1">
+                    <h3 class="text-sm font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Your Focus Progress</h3>
+                    <div class="text-2xl font-bold flex items-baseline space-x-1" :class="darkTheme ? 'text-slate-100' : 'text-slate-800'">
+                        <span x-text="tasks.filter(t => t.status === 'done').length"></span>
+                        <span class="text-sm font-normal text-slate-400">/</span>
+                        <span class="text-sm font-normal text-slate-400" x-text="tasks.length"></span>
+                    </div>
+                </div>
+                <div class="relative w-16 h-16">
+                    <svg class="w-full h-full">
+                        <circle class="text-slate-700/30" stroke="currentColor" stroke-width="4" fill="transparent" r="28" cx="32" cy="32"/>
+                        <circle class="progress-ring__circle"
+                                :class="darkTheme ? 'text-indigo-400' : 'text-amber-600'" 
+                                stroke="currentColor" 
+                                stroke-width="4" 
+                                fill="transparent" 
+                                r="28" cx="32" cy="32"
+                                :stroke-dasharray="2 * Math.PI * 28"
+                                :stroke-dashoffset="(2 * Math.PI * 28) - (tasks.length ? (tasks.filter(t => t.status === 'done').length / tasks.length) : 0) * (2 * Math.PI * 28)"/>
+                    </svg>
+                    <div class="absolute inset-0 flex items-center justify-center text-xs font-bold" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">
+                        <span x-text="tasks.length ? Math.round((tasks.filter(t => t.status === 'done').length / tasks.length) * 100) : 0"></span>%
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tasks Manager Panel -->
+            <div class="glass-panel rounded-2xl p-5 flex-grow flex flex-col space-y-4">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center space-x-2">
+                        <h3 class="font-bold tracking-wide text-lg" :class="darkTheme ? 'text-indigo-200' : 'text-amber-900'">Task Flow</h3>
+                        <button @click="showAddTaskModal = true"
+                                class="p-1 rounded-lg border transition-all duration-300 hover:scale-110"
+                                :class="darkTheme ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20' : 'bg-amber-100 border-amber-200 text-amber-850 hover:bg-amber-200'">
+                            <x-heroicon-o-plus class="w-4 h-4" />
+                        </button>
+                    </div>
+                    <!-- Simple Search -->
+                    <div class="relative w-40">
+                        <input x-model="searchQuery" 
+                               type="text" 
+                               placeholder="Search..." 
+                               class="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border outline-none transition-all duration-300"
+                               :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                        <x-heroicon-o-magnifying-glass class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                    </div>
+                </div>
+
+                <!-- Category Folders -->
+                <div class="flex space-x-2 overflow-x-auto pb-1">
+                    <button @click="activeCategory = ''"
+                            class="px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-300"
+                            :class="activeCategory === '' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-amber-200 text-amber-900') : (darkTheme ? 'bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200' : 'bg-amber-50 border border-transparent text-amber-700/80')">
+                        All
+                    </button>
+                    @foreach($categories as $category)
+                    <button @click="activeCategory = '{{ $category->id }}'"
+                            class="px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-300 flex items-center space-x-1"
+                            :class="activeCategory === '{{ $category->id }}' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-amber-200 text-amber-900') : (darkTheme ? 'bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200' : 'bg-amber-50 border border-transparent text-amber-700/80')">
+                        <span class="w-2 h-2 rounded-full" style="background-color: {{ $category->color ?? '#6366f1' }}"></span>
+                        <span>{{ $category->name }}</span>
+                    </button>
+                    @endforeach
+                </div>
+
+                <!-- Status Tracker Tabs -->
+                <div class="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-900/40 border border-slate-700/30">
+                    <button @click="activeStatus = 'todo'" 
+                            class="py-1.5 text-xs font-semibold rounded-lg transition-all duration-300"
+                            :class="activeStatus === 'todo' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
+                        To Do
+                    </button>
+                    <button @click="activeStatus = 'in_progress'"
+                            class="py-1.5 text-xs font-semibold rounded-lg transition-all duration-300"
+                            :class="activeStatus === 'in_progress' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
+                        In Progress
+                    </button>
+                    <button @click="activeStatus = 'done'"
+                            class="py-1.5 text-xs font-semibold rounded-lg transition-all duration-300"
+                            :class="activeStatus === 'done' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
+                        Done
+                    </button>
+                </div>
+
+                <!-- Task List Visual -->
+                <div class="flex-grow overflow-y-auto space-y-2.5 max-h-[380px] pr-1">
+                    <template x-for="task in tasks.filter(t => t.status === activeStatus && (activeCategory === '' || t.category_id == activeCategory) && (searchQuery === '' || t.title.toLowerCase().includes(searchQuery.toLowerCase())))" :key="task.id">
+                        <div class="p-3 rounded-xl flex items-center justify-between border transition-all duration-300 hover:scale-[1.01]"
+                             :class="darkTheme ? 'bg-slate-900/30 border-slate-800/80 hover:bg-slate-900/50' : 'bg-white border-amber-100 hover:bg-amber-50/40'">
+                            
+                            <div class="flex items-center space-x-3 flex-grow">
+                                <!-- Interactive Circular Checkbox -->
+                                <button @click="toggleTaskStatus(task, task.status === 'done' ? 'todo' : 'done')" 
+                                        class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-300 hover:scale-110"
+                                        :class="task.status === 'done' ? (darkTheme ? 'bg-indigo-500 border-indigo-500 text-slate-950' : 'bg-amber-600 border-amber-600 text-white') : (darkTheme ? 'border-slate-600 hover:border-indigo-400' : 'border-amber-300 hover:border-amber-600')">
+                                    <template x-if="task.status === 'done'">
+                                        <x-heroicon-m-check class="w-3.5 h-3.5 stroke-[3]" />
+                                    </template>
+                                </button>
+                                
+                                <div class="space-y-0.5">
+                                    <span class="text-sm font-semibold tracking-wide"
+                                          :class="task.status === 'done' ? 'line-through text-slate-500' : (darkTheme ? 'text-slate-200' : 'text-slate-800')"
+                                          x-text="task.title"></span>
+                                    <div class="flex items-center space-x-2 text-[10px]">
+                                        <!-- Priority Tagging -->
+                                        <span class="px-1.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold"
+                                              :class="
+                                                task.priority === 'high' ? 'bg-red-500/10 text-red-400' :
+                                                task.priority === 'medium' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-emerald-500/10 text-emerald-400'
+                                              " x-text="task.priority"></span>
+                                        <template x-if="task.due_date">
+                                            <span class="text-slate-400 font-semibold" x-text="task.due_date"></span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Move Status Trigger (Status Tracker helper) -->
+                            <div class="flex items-center space-x-1">
+                                <template x-if="task.status === 'todo'">
+                                    <button @click="toggleTaskStatus(task, 'in_progress')" class="p-1 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors">
+                                        <x-heroicon-o-play class="w-4 h-4" />
+                                    </button>
+                                </template>
+                                <template x-if="task.status === 'in_progress'">
+                                    <button @click="toggleTaskStatus(task, 'done')" class="p-1 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors">
+                                        <x-heroicon-o-check-circle class="w-4 h-4" />
+                                    </button>
+                                </template>
+                            </div>
+
+                        </div>
+                    </template>
+
+                    <!-- Empty State -->
+                    <div x-show="tasks.filter(t => t.status === activeStatus && (activeCategory === '' || t.category_id == activeCategory) && (searchQuery === '' || t.title.toLowerCase().includes(searchQuery.toLowerCase()))).length === 0"
+                         class="text-center py-8 space-y-2">
+                        <x-heroicon-o-clipboard-document-check class="w-8 h-8 mx-auto text-slate-500/60" />
+                        <p class="text-xs text-slate-400 font-medium">All clear in this section!</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Center: Interactive Cozy Lo-Fi Space & Pomodoro Timer -->
+        <section class="lg:col-span-5 flex flex-col justify-between space-y-4">
+            
+            <!-- Cozy Room Visual (Visual subject in the middle) -->
+            <div class="glass-panel rounded-3xl p-6 flex-grow flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300 min-h-[350px]">
+                
+                <!-- Ambient Backdrop Window -->
+                <div class="absolute top-4 w-52 h-36 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center"
+                     :class="darkTheme ? 'bg-slate-950/60 border-indigo-950/80' : 'bg-sky-100 border-amber-200'">
+                    <!-- Sky with stars (Dark) or golden twilight clouds (Light) -->
+                    <div class="absolute inset-0 opacity-40"
+                         :style="darkTheme ? 'background-image: radial-gradient(white 1px, transparent 0); background-size: 16px 16px;' : 'background: linear-gradient(to top, #feb47b, #ff7e5f)'"></div>
+                    
+                    <!-- Raindrops animation -->
+                    <div class="absolute inset-0 flex justify-around">
+                        <div class="rain-drop w-[1px] h-4 bg-indigo-200/40" style="animation-delay: 0.1s;"></div>
+                        <div class="rain-drop w-[1px] h-6 bg-indigo-200/30" style="animation-delay: 0.4s;"></div>
+                        <div class="rain-drop w-[1px] h-4 bg-indigo-200/40" style="animation-delay: 0.2s;"></div>
+                        <div class="rain-drop w-[1px] h-5 bg-indigo-200/30" style="animation-delay: 0.5s;"></div>
+                        <div class="rain-drop w-[1px] h-4 bg-indigo-200/40" style="animation-delay: 0.3s;"></div>
+                    </div>
+
+                    <!-- Window Frame -->
+                    <div class="w-full h-full border-t-2 border-b-2 border-r-2 border-l-2 border-slate-700/40 pointer-events-none flex">
+                        <div class="w-1/2 h-full border-r border-slate-700/40"></div>
+                        <div class="w-1/2 h-full"></div>
+                    </div>
+                </div>
+
+                <!-- Interactive Cozy Desk Illustration (Pure CSS + SVG) -->
+                <div class="relative w-80 h-48 mt-24">
+                    <!-- Retro Desk Lamp -->
+                    <div class="absolute left-8 bottom-6 w-12 h-20 cursor-pointer z-10" @click="lampOn = !lampOn">
+                        <!-- Yellow Glow Cone -->
+                        <div x-show="lampOn" 
+                             class="absolute left-6 -top-10 w-44 h-28 pointer-events-none opacity-30" 
+                             style="background: radial-gradient(ellipse at top left, rgba(253, 224, 71, 0.8) 0%, rgba(253, 224, 71, 0) 70%); transform: rotate(15deg);"></div>
+                        
+                        <!-- Physical Lamp Frame -->
+                        <svg viewBox="0 0 100 150" class="w-full h-full transition-all duration-300"
+                             :class="lampOn ? (darkTheme ? 'text-yellow-400' : 'text-amber-500') : 'text-slate-600'">
+                            <path d="M20,130 L80,130 L60,110 L40,110 Z" fill="currentColor"/> <!-- Base -->
+                            <path d="M50,110 L50,60" stroke="currentColor" stroke-width="8" stroke-linecap="round"/> <!-- Stem -->
+                            <path d="M50,60 L70,40" stroke="currentColor" stroke-width="6" stroke-linecap="round"/> <!-- Stem joint -->
+                            <path d="M55,30 A20,20 0 0,0 95,30 Z" fill="currentColor" :style="lampOn ? 'filter: drop-shadow(0 0 8px currentColor)' : ''"/> <!-- shade -->
+                        </svg>
+                    </div>
+
+                    <!-- Steam Coffee Mug -->
+                    <div class="absolute right-12 bottom-6 w-8 h-8 cursor-pointer z-10" @click="mugSteam = !mugSteam">
+                        <!-- Animated Steam lines -->
+                        <div x-show="mugSteam" class="absolute left-1/2 -top-6 -translate-x-1/2 flex space-x-1.5 opacity-60">
+                            <span class="steam-line w-[1.5px] h-3 bg-slate-300 rounded-full block"></span>
+                            <span class="steam-line w-[1.5px] h-4 bg-slate-300 rounded-full block"></span>
+                            <span class="steam-line w-[1.5px] h-3 bg-slate-300 rounded-full block"></span>
+                        </div>
+                        <!-- Physical Mug -->
+                        <svg viewBox="0 0 100 100" class="w-full h-full text-pink-400">
+                            <rect x="25" y="30" width="40" height="50" rx="10" fill="currentColor" />
+                            <path d="M65,40 C75,40 75,60 65,60" stroke="currentColor" stroke-width="6" fill="none" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+
+                    <!-- Glowing Laptop -->
+                    <div class="absolute left-1/2 -translate-x-1/2 bottom-4 w-32 h-20 z-10">
+                        <!-- Screen Glow -->
+                        <div class="absolute left-4 top-2 w-24 h-12 rounded bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center"
+                             :class="darkTheme ? 'neon-glow-indigo' : ''">
+                            <span class="text-[8px] font-mono text-indigo-300 animate-pulse tracking-widest font-extrabold">> STUDYING...</span>
+                        </div>
+                        <!-- Laptop Frame -->
+                        <svg viewBox="0 0 120 80" class="w-full h-full text-slate-500">
+                            <!-- screen back -->
+                            <rect x="15" y="5" width="90" height="55" rx="4" fill="#334155" />
+                            <rect x="18" y="8" width="84" height="49" rx="2" fill="#0f172a" />
+                            <!-- Keyboard base -->
+                            <path d="M5,60 L115,60 L120,70 L0,70 Z" fill="#475569" />
+                            <!-- glowing keyboard strip -->
+                            <rect x="20" y="62" width="80" height="3" fill="#818cf8" opacity="0.6"/>
+                        </svg>
+                    </div>
+
+                    <!-- Desk Base Surface -->
+                    <div class="absolute bottom-0 left-0 right-0 h-4 rounded-full shadow-lg"
+                         :class="darkTheme ? 'bg-slate-900/90' : 'bg-amber-100'"></div>
+                </div>
+
+                <!-- Ambient Cassette Player Widget -->
+                <div class="mt-4 px-4 py-2.5 rounded-2xl glass-panel w-72 flex items-center justify-between border-t border-slate-700/20">
+                    <div class="flex items-center space-x-2">
+                        <x-heroicon-o-musical-note class="w-5 h-5 animate-bounce" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
+                        <div>
+                            <span class="text-[10px] uppercase tracking-widest font-bold block" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Lofi Player</span>
+                            <span class="text-xs font-semibold block text-slate-300" x-text="activeTrack === 'lofi' ? 'Cozy Study Radio' : (activeTrack === 'rain' ? 'Rainstorm loop' : 'Campfire loop')"></span>
+                        </div>
+                    </div>
+
+                    <!-- Player Actions -->
+                    <div class="flex items-center space-x-2">
+                        <!-- Source selector button -->
+                        <button @click="
+                            activeTrack = activeTrack === 'lofi' ? 'rain' : (activeTrack === 'rain' ? 'campfire' : 'lofi');
+                            audioSource = activeTrack === 'lofi' ? 'https://stream.zeno.fm/0r0xa792kwzuv' : (activeTrack === 'rain' ? 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' : 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3');
+                            if (audioPlaying) { $refs.lofiPlayer.load(); $refs.lofiPlayer.play(); }
+                        " class="p-1.5 rounded-lg border text-slate-400 hover:text-slate-200 transition-colors"
+                           :class="darkTheme ? 'bg-slate-800/40 border-slate-700' : 'bg-amber-50 border-amber-200'">
+                            <x-heroicon-o-arrow-path class="w-3.5 h-3.5" />
+                        </button>
+
+                        <button @click="
+                            audioPlaying = !audioPlaying;
+                            if (audioPlaying) { $refs.lofiPlayer.play(); } else { $refs.lofiPlayer.pause(); }
+                        " class="p-2 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-105"
+                           :class="audioPlaying ? (darkTheme ? 'bg-pink-500/20 border border-pink-500/40 text-pink-300' : 'bg-amber-600 text-white') : (darkTheme ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300' : 'bg-amber-200 text-amber-950')">
+                            <template x-if="!audioPlaying">
+                                <x-heroicon-s-play class="w-4 h-4" />
+                            </template>
+                            <template x-if="audioPlaying">
+                                <x-heroicon-s-pause class="w-4 h-4" />
+                            </template>
+                        </button>
+                    </div>
+
+                    <!-- Hidden HTML5 Audio Element -->
+                    <audio x-ref="lofiPlayer" loop :src="audioSource"></audio>
+                </div>
+
+            </div>
+
+            <!-- Pomodoro Timer Panel -->
+            <div class="glass-panel rounded-3xl p-5 flex flex-col items-center justify-center space-y-4">
+                <div class="flex items-center space-x-2">
+                    <x-heroicon-o-clock class="w-5 h-5" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
+                    <span class="text-sm font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Pomodoro Flow</span>
+                </div>
+
+                <div class="flex items-baseline space-x-1 font-mono text-5xl font-extrabold tracking-widest"
+                     :class="darkTheme ? 'text-indigo-300 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'text-slate-800'">
+                    <span x-text="String(timerMinutes).padStart(2, '0')"></span>
+                    <span class="animate-pulse">:</span>
+                    <span x-text="String(timerSeconds).padStart(2, '0')"></span>
+                </div>
+
+                <div class="flex space-x-3">
+                    <button @click="
+                        isTimerRunning = !isTimerRunning;
+                        if (isTimerRunning) {
+                            timerInterval = setInterval(() => {
+                                if (timerSeconds === 0) {
+                                    if (timerMinutes === 0) {
+                                        clearInterval(timerInterval);
+                                        isTimerRunning = false;
+                                        alert('Focus session completed! Great job.');
+                                        completePomodoroDb();
+                                    } else {
+                                        timerMinutes--;
+                                        timerSeconds = 59;
+                                    }
+                                } else {
+                                    timerSeconds--;
+                                }
+                            }, 1000);
+                        } else {
+                            clearInterval(timerInterval);
+                        }
+                    " class="px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 hover:scale-105"
+                       :class="isTimerRunning ? (darkTheme ? 'bg-red-500/20 border border-red-500/40 text-red-300' : 'bg-red-600 text-white') : (darkTheme ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300' : 'bg-amber-600 text-white')">
+                        <span x-text="isTimerRunning ? 'Pause' : 'Start Focus'"></span>
+                    </button>
+
+                    <button @click="
+                        clearInterval(timerInterval);
+                        isTimerRunning = false;
+                        timerMinutes = 25;
+                        timerSeconds = 0;
+                    " class="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all duration-300 hover:scale-105"
+                       :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-900' : 'bg-amber-50 border-amber-200 text-amber-800'">
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Right Side: Gamification, Notes & Calendar -->
+        <section class="lg:col-span-3 flex flex-col space-y-4">
+            
+            <!-- Gamification: Quests -->
+            <div class="glass-panel rounded-2xl p-5 space-y-3.5">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold tracking-wide text-sm uppercase" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Active Quests</h3>
+                    <x-heroicon-o-fire class="w-5 h-5 text-orange-400 animate-bounce" />
+                </div>
+                <div class="space-y-2.5 max-h-[140px] overflow-y-auto pr-1">
+                    <template x-for="quest in quests" :key="quest.id">
+                        <div class="p-2.5 rounded-xl border flex items-center justify-between space-x-2 transition-all duration-300"
+                             :class="darkTheme ? 'bg-slate-900/20 border-slate-800' : 'bg-white border-amber-100'">
+                            <div class="space-y-0.5 flex-grow pr-2">
+                                <span class="text-xs font-bold block" :class="darkTheme ? 'text-slate-200' : 'text-slate-800'" x-text="quest.title"></span>
+                                <div class="flex flex-col space-y-0.5">
+                                    <span class="text-[9px] uppercase font-extrabold tracking-wider" :class="darkTheme ? 'text-indigo-400' : 'text-amber-600'">
+                                        +<span x-text="quest.points_reward"></span> XP (<span x-text="quest.type"></span>)
+                                    </span>
+                                    <!-- Simple Progress Indicator -->
+                                    <div class="flex items-center space-x-1.5 w-full">
+                                        <div class="flex-grow bg-slate-700/30 rounded-full h-1 overflow-hidden">
+                                            <div class="h-full rounded-full transition-all duration-500" 
+                                                 :class="darkTheme ? 'bg-indigo-400' : 'bg-amber-600'"
+                                                 :style="`width: ${Math.min(100, (quest.current_value / quest.goal_value) * 100)}%`"></div>
+                                        </div>
+                                        <span class="text-[8px] text-slate-400 font-bold font-mono">
+                                            <span x-text="quest.current_value"></span>/<span x-text="quest.goal_value"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center flex-shrink-0">
+                                <template x-if="quest.completed">
+                                    <x-heroicon-m-check-badge class="w-5 h-5 text-emerald-400" />
+                                </template>
+                                <template x-if="!quest.completed">
+                                    <div class="w-5 h-5 rounded-full border border-slate-600/60 flex items-center justify-center text-[9px] text-slate-400 font-bold">
+                                        Q
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Notes Panel -->
+            <div class="glass-panel rounded-2xl p-5 space-y-3 flex-grow">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold tracking-wide text-sm uppercase" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Study Notes</h3>
+                    <button @click="selectedNote = { id: null, title: '', content: '' }; showNoteModal = true"
+                            class="p-1 rounded-lg border transition-colors hover:scale-105"
+                            :class="darkTheme ? 'bg-slate-800/40 border-slate-700 text-indigo-400' : 'bg-amber-50 border-amber-200 text-amber-700'">
+                        <x-heroicon-o-plus class="w-4 h-4" />
+                    </button>
+                </div>
+                <div class="space-y-2.5 max-h-[160px] overflow-y-auto pr-1">
+                    <template x-for="note in notes" :key="note.id">
+                        <div @click="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
+                             class="p-2.5 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01]"
+                             :class="darkTheme ? 'bg-slate-900/20 border-slate-800 hover:bg-slate-900/40' : 'bg-white border-amber-100 hover:bg-amber-50/40'">
+                            <span class="text-xs font-bold block" :class="darkTheme ? 'text-slate-200' : 'text-slate-800'" x-text="note.title"></span>
+                            <p class="text-[10px] text-slate-400 truncate mt-0.5" x-text="note.content ? (note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')) : ''"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Mini Calendar Widget -->
+            <div class="glass-panel rounded-2xl p-5 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold tracking-wide text-sm uppercase" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">{{ now()->format('F Y') }}</h3>
+                    <x-heroicon-o-calendar class="w-4 h-4 text-slate-400" />
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400">
+                    <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center text-xs">
+                    @php
+                        $startOfMonth = now()->startOfMonth();
+                        $endOfMonth = now()->endOfMonth();
+                        $daysInMonth = now()->daysInMonth;
+                        $firstDayOfWeek = $startOfMonth->dayOfWeek;
+                    @endphp
+
+                    @for($i = 0; $i < $firstDayOfWeek; $i++)
+                        <div></div>
+                    @endfor
+
+                    @for($day = 1; $day <= $daysInMonth; $day++)
+                        @php
+                            $hasDue = isset($calendarTasks[$day]);
+                            $isToday = $day == now()->day;
+                        @endphp
+                        <div class="py-1 rounded-md relative flex items-center justify-center transition-all duration-300"
+                             :class="[
+                                '{{ $isToday }}' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 font-extrabold' : 'bg-amber-200 text-amber-950 font-extrabold') : '',
+                                darkTheme ? 'text-slate-300' : 'text-slate-800'
+                             ]">
+                            <span>{{ $day }}</span>
+                            @if($hasDue)
+                                <span class="absolute bottom-0.5 w-1 h-1 rounded-full bg-red-400 animate-ping"></span>
+                            @endif
+                        </div>
+                    @endfor
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Notes Detail Modal -->
+    <div x-show="showNoteModal" 
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+         x-transition>
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 space-y-4"
+             @click.away="showNoteModal = false">
+            <div class="flex justify-between items-center">
+                <input x-model="selectedNote.title" 
+                       type="text" 
+                       placeholder="Note Title" 
+                       class="font-bold text-lg outline-none border-b bg-transparent w-4/5"
+                       :class="darkTheme ? 'text-indigo-200 border-slate-700 focus:border-indigo-500' : 'text-amber-950 border-amber-200 focus:border-amber-500'" />
+                <button @click="showNoteModal = false" class="text-slate-400 hover:text-slate-200">
+                    <x-heroicon-o-x-mark class="w-6 h-6" />
+                </button>
+            </div>
+            <textarea x-model="selectedNote.content" 
+                      placeholder="Type your notes here..." 
+                      class="w-full h-40 resize-none outline-none bg-transparent text-sm"
+                      :class="darkTheme ? 'text-slate-300' : 'text-slate-700'"></textarea>
+            <div class="flex justify-between items-center">
+                <div>
+                    <template x-if="selectedNote.id">
+                        <button @click="deleteNoteDb(selectedNote.id)"
+                                class="px-3 py-2 text-xs font-semibold rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all duration-300 hover:scale-105">
+                            Delete
+                        </button>
+                    </template>
+                </div>
+                <div class="flex space-x-2">
+                    <button @click="showNoteModal = false"
+                            class="px-4 py-2 text-xs font-semibold rounded-xl border transition-all duration-300 hover:scale-105"
+                            :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300' : 'bg-amber-50 border-amber-200 text-amber-950'">
+                        Cancel
+                    </button>
+                    <button @click="saveNoteDb()"
+                            class="px-4 py-2 text-xs font-semibold rounded-xl text-white transition-all duration-300 hover:scale-105"
+                            :class="darkTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'">
+                        Save
+                    </button>
                 </div>
             </div>
         </div>
     </div>
-</x-app-layout>
+
+    <!-- Add Task Modal -->
+    <div x-show="showAddTaskModal" 
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+         x-transition>
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 space-y-4"
+             @click.away="showAddTaskModal = false">
+            <div class="flex justify-between items-center">
+                <h3 class="font-bold text-lg" :class="darkTheme ? 'text-indigo-200' : 'text-amber-950'">New Task Flow</h3>
+                <button @click="showAddTaskModal = false" class="text-slate-400 hover:text-slate-200">
+                    <x-heroicon-o-x-mark class="w-6 h-6" />
+                </button>
+            </div>
+            
+            <div class="space-y-3 text-sm">
+                <!-- Task Title -->
+                <div class="flex flex-col space-y-1">
+                    <label class="font-semibold text-xs uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Task Name</label>
+                    <input x-model="newTask.title" 
+                           type="text" 
+                           placeholder="What are you studying today?" 
+                           class="px-3 py-2 rounded-xl border outline-none transition-all duration-300 font-medium"
+                           :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                </div>
+
+                <!-- Priority Level -->
+                <div class="flex flex-col space-y-1">
+                    <label class="font-semibold text-xs uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Priority</label>
+                    <select x-model="newTask.priority"
+                            class="px-3 py-2 rounded-xl border outline-none transition-all duration-300 font-medium"
+                            :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+
+                <!-- Category -->
+                <div class="flex flex-col space-y-1">
+                    <label class="font-semibold text-xs uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Category</label>
+                    <select x-model="newTask.category_id"
+                            class="px-3 py-2 rounded-xl border outline-none transition-all duration-300 font-medium"
+                            :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'">
+                        <option value="">No Category</option>
+                        @foreach($categories as $category)
+                            <option value="{{ $category->id }}">{{ $category->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <!-- Due Date -->
+                <div class="flex flex-col space-y-1">
+                    <label class="font-semibold text-xs uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Due Date</label>
+                    <input x-model="newTask.due_date" 
+                           type="date" 
+                           class="px-3 py-2 rounded-xl border outline-none transition-all duration-300 font-medium"
+                           :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-2">
+                <button @click="showAddTaskModal = false"
+                        class="px-4 py-2 text-xs font-semibold rounded-xl border transition-all duration-300 hover:scale-105"
+                        :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300' : 'bg-amber-50 border-amber-200 text-amber-950'">
+                    Cancel
+                </button>
+                <button @click="saveTaskDb()"
+                        class="px-4 py-2 text-xs font-semibold rounded-xl text-white transition-all duration-300 hover:scale-105"
+                        :class="darkTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'">
+                    Add Task
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Immersive Footer Panel -->
+    <footer class="w-full px-6 py-3 flex justify-between items-center text-[10px] tracking-wider uppercase font-bold"
+            :class="darkTheme ? 'text-slate-500 border-t border-slate-900' : 'text-amber-700/80 border-t border-amber-200'">
+        <span>StudyFlow Project Group © 2026</span>
+        <span>Cozy Study Music Player and Productive Workspace</span>
+    </footer>
+
+</body>
+</html>
