@@ -261,7 +261,8 @@
         }
     </style>
 </head>
-<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden"
+<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden transition-colors duration-500"
+    :class="darkTheme ? 'dark' : 'light'"
     :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'">
 
     <!-- Immersive Header Panel -->
@@ -538,19 +539,20 @@
                     <!-- Glowing Laptop -->
                     <div class="absolute left-1/2 -translate-x-1/2 bottom-4 w-32 h-20 z-10">
                         <!-- Screen Glow -->
-                        <div class="absolute left-4 top-2 w-24 h-12 rounded bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center"
-                             :class="darkTheme ? 'neon-glow-indigo' : ''">
-                            <span class="text-[8px] font-mono text-indigo-300 animate-pulse tracking-widest font-extrabold">> STUDYING...</span>
+                        <div class="absolute left-4 top-2 w-24 h-12 rounded flex items-center justify-center transition-all"
+                             :class="darkTheme ? 'bg-indigo-500/20 border border-indigo-400/40 neon-glow-indigo' : 'bg-orange-800/10 border border-orange-800/30'">
+                            <span class="text-[8px] font-mono animate-pulse tracking-widest font-extrabold"
+                                  :class="darkTheme ? 'text-indigo-300' : 'text-orange-900'">> STUDYING...</span>
                         </div>
                         <!-- Laptop Frame -->
-                        <svg viewBox="0 0 120 80" class="w-full h-full text-slate-500">
+                        <svg viewBox="0 0 120 80" class="w-full h-full transition-colors" :class="darkTheme ? 'text-slate-500' : 'text-amber-800'">
                             <!-- screen back -->
-                            <rect x="15" y="5" width="90" height="55" rx="4" fill="#334155" />
-                            <rect x="18" y="8" width="84" height="49" rx="2" fill="#0f172a" />
+                            <rect x="15" y="5" width="90" height="55" rx="4" :fill="darkTheme ? '#334155' : '#d4a373'" />
+                            <rect x="18" y="8" width="84" height="49" rx="2" :fill="darkTheme ? '#0f172a' : '#faedcd'" />
                             <!-- Keyboard base -->
-                            <path d="M5,60 L115,60 L120,70 L0,70 Z" fill="#475569" />
+                            <path d="M5,60 L115,60 L120,70 L0,70 Z" :fill="darkTheme ? '#475569' : '#dda15e'" />
                             <!-- glowing keyboard strip -->
-                            <rect x="20" y="62" width="80" height="3" fill="#818cf8" opacity="0.6"/>
+                            <rect x="20" y="62" width="80" height="3" :fill="darkTheme ? '#818cf8' : '#fefae0'" opacity="0.6"/>
                         </svg>
                     </div>
 
@@ -576,8 +578,8 @@
                             activeTrack = activeTrack === 'lofi' ? 'rain' : (activeTrack === 'rain' ? 'campfire' : 'lofi');
                             audioSource = activeTrack === 'lofi' ? 'https://stream.zeno.fm/0r0xa792kwzuv' : (activeTrack === 'rain' ? 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' : 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3');
                             if (audioPlaying) { $refs.lofiPlayer.load(); $refs.lofiPlayer.play(); }
-                        " class="p-1.5 rounded-lg border text-slate-400 hover:text-slate-200 transition-colors"
-                           :class="darkTheme ? 'bg-slate-800/40 border-slate-700' : 'bg-amber-50 border-amber-200'">
+                        " class="p-1.5 rounded-lg border transition-colors"
+                           :class="darkTheme ? 'bg-slate-800/40 border-slate-700 text-slate-400 hover:text-slate-200' : 'bg-amber-50 border-amber-200 text-amber-700 hover:text-amber-900'">
                             <x-heroicon-o-arrow-path class="w-3.5 h-3.5" />
                         </button>
 
