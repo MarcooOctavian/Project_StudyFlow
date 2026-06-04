@@ -12,6 +12,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/dashboard/tasks', [DashboardController::class, 'createTask'])->name('dashboard.tasks.create');
     Route::patch('/dashboard/tasks/{id}/toggle', [DashboardController::class, 'toggleTask'])->name('dashboard.tasks.toggle');
+    Route::delete('/dashboard/tasks/{id}', [DashboardController::class, 'deleteTask'])->name('dashboard.tasks.delete');
     Route::post('/dashboard/notes', [DashboardController::class, 'saveNote'])->name('dashboard.notes.save');
     Route::delete('/dashboard/notes/{id}', [DashboardController::class, 'deleteNote'])->name('dashboard.notes.delete');
     Route::post('/dashboard/pomodoro/complete', [DashboardController::class, 'completePomodoro'])->name('dashboard.pomodoro.complete');

@@ -239,6 +239,32 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function deleteTask($id)
+    {
+        $user = Auth::user();
+        $task = $user->tasks()->findOrFail($id);
+        $task->delete();
+
+        $this->updateQuestProgress($user, 'task_completion');
+
+        return response()->json([
+            'success' => true,
+            'points' => $user->total_points,
+            'tasks' => $user->tasks()->get()->map(function($t) {
+                return [
+                    'id' => $t->id,
+                    'title' => $t->title,
+                    'description' => $t->description,
+                    'status' => $t->status,
+                    'priority' => $t->priority_level,
+                    'category_id' => $t->category_id,
+                    'due_date' => $t->due_date ? $t->due_date->format('Y-m-d') : null,
+                ];
+            }),
+            'quests' => $this->getQuests($user)
+        ]);
+    }
+
     public function completePomodoro(Request $request)
     {
         $user = Auth::user();
