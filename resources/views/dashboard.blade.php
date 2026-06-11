@@ -9,9 +9,13 @@
     showNoteModal: false,
     selectedNote: { id: null, title: '', content: '' },
     isTimerRunning: false,
-    timerDuration: 1500, // 25 mins
-    timerMinutes: 25,
+    timerDuration: {{ ($user->pomodoro_duration ?? 25) * 60 }},
+    timerMinutes: {{ $user->pomodoro_duration ?? 25 }},
     timerSeconds: 0,
+    customPomodoroDuration: {{ $user->pomodoro_duration ?? 25 }},
+    customBreakDuration: {{ $user->break_duration ?? 5 }},
+    isBreakMode: false,
+    showTimerSettings: false,
     timerInterval: null,
     audioPlaying: false,
     audioSource: 'https://stream.zeno.fm/0r0xa792kwzuv', // Lofi radio
@@ -49,6 +53,14 @@
     })) }},
     showAddTaskModal: false,
     newTask: { title: '', priority: 'low', category_id: '', due_date: '' },
+    draggedNoteIndex: null,
+    reorderNotes(from, to) {
+        if (from === null || to === null || from === to) return;
+        const updatedNotes = [...this.notes];
+        const [movedNote] = updatedNotes.splice(from, 1);
+        updatedNotes.splice(to, 0, movedNote);
+        this.notes = updatedNotes;
+    },
     calendarYear: new Date().getFullYear(),
     calendarMonth: new Date().getMonth(),
     calendarMonthName() {
@@ -286,6 +298,32 @@
         } catch (err) {
             console.error(err);
         }
+    },
+
+    async savePomodoroSettings() {
+        try {
+            const res = await fetch('/dashboard/pomodoro/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({
+                    pomodoro_duration: this.customPomodoroDuration,
+                    break_duration: this.customBreakDuration
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.customPomodoroDuration = data.pomodoro_duration;
+                this.customBreakDuration = data.break_duration;
+                this.timerMinutes = this.isBreakMode ? this.customBreakDuration : this.customPomodoroDuration;
+                this.timerSeconds = 0;
+                this.showTimerSettings = false;
+            }
+        } catch (err) {
+            console.error(err);
+        }
     }
 }" :class="darkTheme ? 'dark' : ''">
 <head>
@@ -305,6 +343,51 @@
 
     <!-- Font Family Styling Override -->
     <style>
+        /* Custom scrollbar styling */
+        /* Firefox */
+        body.dark * {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(99, 102, 241, 0.35) rgba(25, 18, 42, 0.2);
+        }
+
+        body.light * {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(217, 119, 6, 0.35) rgba(255, 255, 255, 0.2);
+        }
+
+        /* Chrome, Edge, and Safari */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(25, 18, 42, 0.25);
+            border-radius: 9999px;
+        }
+
+        body.light ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.35);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.35);
+            border-radius: 9999px;
+            transition: background 0.2s ease;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.65);
+        }
+
+        body.light ::-webkit-scrollbar-thumb {
+            background: rgba(217, 119, 6, 0.35);
+        }
+
+        body.light ::-webkit-scrollbar-thumb:hover {
+            background: rgba(217, 119, 6, 0.65);
+        }
+
         body {
             font-family: 'Outfit', 'Quicksand', sans-serif;
             transition: background-color 0.8s ease, color 0.8s ease;
@@ -366,7 +449,7 @@
         }
     </style>
 </head>
-<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden transition-colors duration-500"
+<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden lg:h-screen lg:overflow-hidden transition-colors duration-500"
     :class="darkTheme ? 'dark' : 'light'"
     :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'">
 
@@ -427,10 +510,10 @@
     </header>
 
     <!-- Main Workspace -->
-    <main class="w-full flex-grow px-6 py-2 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+    <main class="w-full flex-grow px-6 py-2 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch lg:h-[calc(100vh-140px)] lg:min-h-0">
         
         <!-- Left Side: Tasks & Progress -->
-        <section class="lg:col-span-4 flex flex-col space-y-4">
+        <section class="lg:col-span-4 flex flex-col space-y-4 lg:h-full lg:min-h-0 overflow-hidden">
             <!-- Progress Panel -->
             <div class="glass-panel rounded-2xl p-5 flex items-center justify-between transition-all duration-300">
                 <div class="space-y-1">
@@ -518,7 +601,7 @@
                 </div>
 
                 <!-- Task List Visual -->
-                <div class="flex-grow overflow-y-auto space-y-2.5 max-h-[380px] pr-1">
+                <div class="flex-grow overflow-y-auto space-y-2.5 max-h-[380px] lg:max-h-none pr-1 min-h-0">
                     <template x-for="task in tasks.filter(t => t.status === activeStatus && (activeCategory === '' || t.category_id == activeCategory) && (searchQuery === '' || t.title.toLowerCase().includes(searchQuery.toLowerCase())))" :key="task.id">
                         <div class="p-3 rounded-xl flex items-center justify-between border transition-all duration-300 hover:scale-[1.01]"
                              :class="darkTheme ? 'bg-slate-900/30 border-slate-800/80 hover:bg-slate-900/50' : 'bg-white border-amber-100 hover:bg-amber-50/40'">
@@ -559,9 +642,20 @@
                                     </button>
                                 </template>
                                 <template x-if="task.status === 'in_progress'">
-                                    <button @click="toggleTaskStatus(task, 'done')" class="p-1 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors">
-                                        <x-heroicon-o-check-circle class="w-4 h-4" />
-                                    </button>
+                                    <div class="flex items-center space-x-1">
+                                        <!-- Cancel Button -->
+                                        <button @click="toggleTaskStatus(task, 'todo')"
+                                                class="p-1 rounded-lg text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                                                title="Cancel In-Progress (Move back to To Do)">
+                                            <x-heroicon-o-arrow-uturn-left class="w-4 h-4" />
+                                        </button>
+                                        <!-- Complete Button -->
+                                        <button @click="toggleTaskStatus(task, 'done')"
+                                                class="p-1 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                                title="Complete Task">
+                                            <x-heroicon-o-check-circle class="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </template>
                             </div>
 
@@ -579,13 +673,13 @@
         </section>
 
         <!-- Center: Interactive Cozy Lo-Fi Space & Pomodoro Timer -->
-        <section class="lg:col-span-5 flex flex-col justify-between space-y-4">
+        <section class="lg:col-span-5 flex flex-col justify-between space-y-4 lg:h-full lg:min-h-0 overflow-hidden">
             
             <!-- Cozy Room Visual (Visual subject in the middle) -->
-            <div class="glass-panel rounded-3xl p-6 flex-grow flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300 min-h-[350px]">
+            <div class="glass-panel rounded-3xl p-6 flex-grow flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300 min-h-[400px]">
                 
                 <!-- Ambient Backdrop Window -->
-                <div class="absolute top-4 w-52 h-36 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center"
+                <div class="absolute top-4 left-1/2 -translate-x-1/2 w-52 h-36 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center"
                      :class="darkTheme ? 'bg-slate-950/60 border-indigo-950/80' : 'bg-sky-100 border-amber-200'">
                     <!-- Sky with stars (Dark) or golden twilight clouds (Light) -->
                     <div class="absolute inset-0 opacity-40"
@@ -608,7 +702,7 @@
                 </div>
 
                 <!-- Interactive Cozy Desk Illustration (Pure CSS + SVG) -->
-                <div class="relative w-80 h-48 mt-24">
+                <div class="absolute top-[135px] left-1/2 -translate-x-1/2 w-80 h-48 transition-all duration-300">
                     <!-- Retro Desk Lamp (Taller) -->
                     <div class="absolute left-8 -bottom-6 w-14 h-56 cursor-pointer z-10" @click="lampOn = !lampOn">
                         
@@ -669,7 +763,7 @@
                 </div>
 
                 <!-- Ambient Cassette Player Widget -->
-                <div class="mt-4 px-4 py-2.5 rounded-2xl glass-panel w-72 flex items-center justify-between border-t border-slate-700/20">
+                <div class="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-2xl glass-panel w-72 flex items-center justify-between border-t border-slate-700/20 z-10">
                     <div class="flex items-center space-x-2">
                         <x-heroicon-o-musical-note class="w-5 h-5 animate-bounce" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
                         <div>
@@ -712,19 +806,45 @@
 
             <!-- Pomodoro Timer Panel -->
             <div class="glass-panel rounded-3xl p-5 flex flex-col items-center justify-center space-y-4">
-                <div class="flex items-center space-x-2">
-                    <x-heroicon-o-clock class="w-5 h-5" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
-                    <span class="text-sm font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Pomodoro Flow</span>
+                <div class="flex items-center justify-between w-full px-2">
+                    <div class="flex items-center space-x-2">
+                        <x-heroicon-o-clock class="w-5 h-5" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
+                        <span class="text-sm font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Pomodoro Flow</span>
+                    </div>
+                    <!-- Settings Toggle Button -->
+                    <button @click="showTimerSettings = !showTimerSettings" 
+                            class="p-1.5 rounded-lg border transition-all duration-300 hover:scale-105"
+                            :class="darkTheme ? 'bg-slate-800/40 border-slate-700 text-slate-400 hover:text-slate-200' : 'bg-amber-50 border-amber-200 text-amber-700 hover:text-amber-900'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.43l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Focus / Short Break Tabs -->
+                <div class="flex space-x-2 p-1 rounded-xl bg-slate-900/40 border border-slate-700/30 w-full" x-show="!showTimerSettings">
+                    <button @click="isBreakMode = false; clearInterval(timerInterval); isTimerRunning = false; timerMinutes = customPomodoroDuration; timerSeconds = 0"
+                            class="flex-1 py-1 text-xs font-semibold rounded-lg transition-all duration-300"
+                            :class="!isBreakMode ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
+                        Focus
+                    </button>
+                    <button @click="isBreakMode = true; clearInterval(timerInterval); isTimerRunning = false; timerMinutes = customBreakDuration; timerSeconds = 0"
+                            class="flex-1 py-1 text-xs font-semibold rounded-lg transition-all duration-300"
+                            :class="isBreakMode ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
+                        Short Break
+                    </button>
                 </div>
 
                 <div class="flex items-baseline space-x-1 font-mono text-5xl font-extrabold tracking-widest"
+                     x-show="!showTimerSettings"
                      :class="darkTheme ? 'text-indigo-300 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'text-slate-800'">
                     <span x-text="String(timerMinutes).padStart(2, '0')"></span>
                     <span class="animate-pulse">:</span>
                     <span x-text="String(timerSeconds).padStart(2, '0')"></span>
                 </div>
 
-                <div class="flex space-x-3">
+                <div class="flex space-x-3" x-show="!showTimerSettings">
                     <button @click="
                         isTimerRunning = !isTimerRunning;
                         if (isTimerRunning) {
@@ -733,8 +853,18 @@
                                     if (timerMinutes === 0) {
                                         clearInterval(timerInterval);
                                         isTimerRunning = false;
-                                        alert('Focus session completed! Great job.');
-                                        completePomodoroDb();
+                                        if (!isBreakMode) {
+                                            alert('Focus session completed! Great job. Time for a break.');
+                                            completePomodoroDb();
+                                            isBreakMode = true;
+                                            timerMinutes = customBreakDuration;
+                                            timerSeconds = 0;
+                                        } else {
+                                            alert('Break session completed! Back to focus.');
+                                            isBreakMode = false;
+                                            timerMinutes = customPomodoroDuration;
+                                            timerSeconds = 0;
+                                        }
                                     } else {
                                         timerMinutes--;
                                         timerSeconds = 59;
@@ -754,19 +884,51 @@
                     <button @click="
                         clearInterval(timerInterval);
                         isTimerRunning = false;
-                        timerMinutes = 25;
+                        timerMinutes = isBreakMode ? customBreakDuration : customPomodoroDuration;
                         timerSeconds = 0;
                     " class="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all duration-300 hover:scale-105"
                        :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-900' : 'bg-amber-50 border-amber-200 text-amber-800'">
                         Reset
                     </button>
                 </div>
-            </div>
+
+                <!-- Pomodoro Settings Form -->
+                <div class="w-full flex flex-col space-y-4 p-2 text-left" x-show="showTimerSettings" x-transition>
+                    <h4 class="text-xs font-bold uppercase tracking-wider font-semibold" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Settings</h4>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Focus Time (minutes)</label>
+                            <input type="number" x-model.number="customPomodoroDuration" min="1" max="180"
+                                   class="w-full text-xs px-3 py-2 rounded-lg border outline-none transition-all duration-300"
+                                   :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Break Time (minutes)</label>
+                            <input type="number" x-model.number="customBreakDuration" min="1" max="60"
+                                   class="w-full text-xs px-3 py-2 rounded-lg border outline-none transition-all duration-300"
+                                   :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-2 pt-1">
+                        <button @click="showTimerSettings = false; timerMinutes = isBreakMode ? customBreakDuration : customPomodoroDuration; timerSeconds = 0"
+                                class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-all duration-300 hover:scale-105"
+                                :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-900' : 'bg-amber-50 border-amber-200 text-amber-800'">
+                            Cancel
+                        </button>
+                        <button @click="savePomodoroSettings()"
+                                class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-white transition-all duration-300 hover:scale-105"
+                                :class="darkTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'">
+                            Save
+                        </button>
+                    </div>
+                </div>
 
         </section>
 
         <!-- Right Side: Gamification, Notes & Calendar -->
-        <section class="lg:col-span-3 flex flex-col space-y-4">
+        <section class="lg:col-span-3 flex flex-col space-y-4 lg:h-full lg:min-h-0 overflow-hidden">
             
             <!-- Gamification: Quests -->
             <div class="glass-panel rounded-2xl p-5 space-y-3.5">
@@ -813,8 +975,8 @@
             </div>
 
             <!-- Notes Panel -->
-            <div class="glass-panel rounded-2xl p-5 space-y-3 flex-grow">
-                <div class="flex items-center justify-between">
+            <div class="glass-panel rounded-2xl p-5 space-y-3 flex-grow flex flex-col min-h-0 min-w-0 w-full">
+                <div class="flex items-center justify-between flex-shrink-0">
                     <h3 class="font-bold tracking-wide text-sm uppercase" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Study Notes</h3>
                     <button @click="selectedNote = { id: null, title: '', content: '' }; showNoteModal = true"
                             class="p-1 rounded-lg border transition-colors hover:scale-105"
@@ -822,13 +984,67 @@
                         <x-heroicon-o-plus class="w-4 h-4" />
                     </button>
                 </div>
-                <div class="space-y-2.5 max-h-[160px] overflow-y-auto pr-1">
-                    <template x-for="note in notes" :key="note.id">
-                        <div @click="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
-                             class="p-2.5 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01]"
-                             :class="darkTheme ? 'bg-slate-900/20 border-slate-800 hover:bg-slate-900/40' : 'bg-white border-amber-100 hover:bg-amber-50/40'">
-                            <span class="text-xs font-bold block" :class="darkTheme ? 'text-slate-200' : 'text-slate-800'" x-text="note.title"></span>
-                            <p class="text-[10px] text-slate-400 truncate mt-0.5" x-text="note.content ? (note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')) : ''"></p>
+                <div class="space-y-2.5 flex-grow overflow-y-auto pr-1 min-h-0 min-w-0 w-full max-h-[180px] lg:max-h-none">
+                    <template x-for="(note, index) in notes" :key="note.id">
+                        <div x-data="{ isDraggable: false }"
+                             :draggable="isDraggable"
+                             @dragstart="draggedNoteIndex = index; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', index);"
+                             @dragover.prevent
+                             @dragenter.prevent
+                             @drop="reorderNotes(draggedNoteIndex, index)"
+                             @dragend="draggedNoteIndex = null; isDraggable = false"
+                             @click="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
+                             class="group relative p-3 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01] flex flex-col min-w-0 w-full"
+                             :class="draggedNoteIndex === index ? 'opacity-30 border-dashed border-indigo-400/60' : (darkTheme ? 'bg-slate-900/20 border-slate-800 hover:bg-slate-900/40' : 'bg-white border-amber-100 hover:bg-amber-50/40')"
+                             style="min-width: 0;">
+                            
+                            <!-- Header with Title & Action Menu -->
+                            <div class="flex items-start justify-between gap-2 min-w-0 w-full">
+                                <span class="text-xs font-bold block min-w-0 flex-grow"
+                                      style="overflow-wrap: break-word; word-break: break-word; min-width: 0;"
+                                      :class="darkTheme ? 'text-slate-200' : 'text-slate-800'"
+                                      x-text="note.title"></span>
+                                
+                                <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0 pointer-events-none group-hover:pointer-events-auto" @click.stop>
+                                    <!-- Drag Handle -->
+                                    <div class="p-1 rounded transition-colors cursor-grab active:cursor-grabbing pointer-events-auto"
+                                         @mousedown="isDraggable = true"
+                                         @mouseup="isDraggable = false"
+                                         @touchstart="isDraggable = true"
+                                         @touchend="isDraggable = false"
+                                         :class="darkTheme ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'"
+                                         title="Drag">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                            <circle cx="9" cy="5" r="1.5" fill="currentColor"/>
+                                            <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
+                                            <circle cx="9" cy="19" r="1.5" fill="currentColor"/>
+                                            <circle cx="15" cy="5" r="1.5" fill="currentColor"/>
+                                            <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
+                                            <circle cx="15" cy="19" r="1.5" fill="currentColor"/>
+                                        </svg>
+                                    </div>
+                                    
+                                    <!-- Edit Button -->
+                                    <button @click.stop="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
+                                            class="p-1 rounded transition-colors pointer-events-auto"
+                                            :class="darkTheme ? 'hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-300' : 'hover:bg-amber-100 text-slate-400 hover:text-amber-800'"
+                                            title="Edit Note">
+                                        <x-heroicon-o-pencil class="w-3.5 h-3.5" />
+                                    </button>
+                                    
+                                    <!-- Delete Button -->
+                                    <button @click.stop="deleteNoteDb(note.id)"
+                                            class="p-1 rounded transition-colors pointer-events-auto"
+                                            :class="darkTheme ? 'hover:bg-red-500/10 text-slate-400 hover:text-red-400' : 'hover:bg-red-50 text-slate-400 hover:text-red-650'"
+                                            title="Delete Note">
+                                        <x-heroicon-o-trash class="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Content Preview -->
+                            <p class="text-[10px] text-slate-400 mt-1 truncate min-w-0"
+                               x-text="note.content ? (note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')) : ''"></p>
                         </div>
                     </template>
                 </div>

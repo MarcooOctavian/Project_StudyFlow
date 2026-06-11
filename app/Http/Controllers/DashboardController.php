@@ -268,12 +268,13 @@ class DashboardController extends Controller
     public function completePomodoro(Request $request)
     {
         $user = Auth::user();
+        $duration = $user->pomodoro_duration ?? 25;
 
         // Create pomodoro session
         $session = $user->pomodoroSessions()->create([
-            'start_time' => now()->subMinutes(25),
+            'start_time' => now()->subMinutes($duration),
             'end_time' => now(),
-            'duration_minutes' => 25,
+            'duration_minutes' => $duration,
         ]);
 
         // Award +50 XP
@@ -287,6 +288,26 @@ class DashboardController extends Controller
             'success' => true,
             'points' => $user->total_points,
             'quests' => $this->getQuests($user)
+        ]);
+    }
+
+    public function updatePomodoroSettings(Request $request)
+    {
+        $request->validate([
+            'pomodoro_duration' => 'required|integer|min:1|max:180',
+            'break_duration' => 'required|integer|min:1|max:60',
+        ]);
+
+        $user = Auth::user();
+        $user->update([
+            'pomodoro_duration' => $request->pomodoro_duration,
+            'break_duration' => $request->break_duration,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'pomodoro_duration' => $user->pomodoro_duration,
+            'break_duration' => $user->break_duration,
         ]);
     }
 

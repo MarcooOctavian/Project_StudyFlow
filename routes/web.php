@@ -16,6 +16,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/dashboard/notes', [DashboardController::class, 'saveNote'])->name('dashboard.notes.save');
     Route::delete('/dashboard/notes/{id}', [DashboardController::class, 'deleteNote'])->name('dashboard.notes.delete');
     Route::post('/dashboard/pomodoro/complete', [DashboardController::class, 'completePomodoro'])->name('dashboard.pomodoro.complete');
+    Route::post('/dashboard/pomodoro/settings', [DashboardController::class, 'updatePomodoroSettings'])->name('dashboard.pomodoro.settings');
 });
 
 Route::middleware('auth')->group(function () {
