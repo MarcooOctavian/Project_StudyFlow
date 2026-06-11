@@ -15,8 +15,11 @@
     customPomodoroDuration: {{ $user->pomodoro_duration ?? 25 }},
     customBreakDuration: {{ $user->break_duration ?? 5 }},
     isBreakMode: false,
-    showTimerSettings: false,
     timerInterval: null,
+    timerLoops: 3,
+    currentLoop: 1,
+    timerGlow: false,
+    timerStatusText: '',
     audioPlaying: false,
     audioSource: 'https://stream.zeno.fm/0r0xa792kwzuv', // Lofi radio
     audioVolume: 0.5,
@@ -111,6 +114,10 @@
     selectedCalendarDate: '',
     selectedCalendarDay: 0,
     newCalendarTask: { title: '', priority: 'low', category_id: '' },
+    showNotesWindow: false,
+    notesPosition: { x: (window.innerWidth ? window.innerWidth - 380 : 800), y: 120 },
+    isDraggingNotes: false,
+    dragStart: { x: 0, y: 0 },
 
     async deleteTaskDb(id) {
         if (!confirm('Are you sure you want to delete this task?')) return;
@@ -300,9 +307,9 @@
         }
     },
 
-    async savePomodoroSettings() {
+    async savePomodoroSettingsDb() {
         try {
-            const res = await fetch('/dashboard/pomodoro/settings', {
+            await fetch('/dashboard/pomodoro/settings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -313,17 +320,51 @@
                     break_duration: this.customBreakDuration
                 })
             });
-            const data = await res.json();
-            if (data.success) {
-                this.customPomodoroDuration = data.pomodoro_duration;
-                this.customBreakDuration = data.break_duration;
-                this.timerMinutes = this.isBreakMode ? this.customBreakDuration : this.customPomodoroDuration;
-                this.timerSeconds = 0;
-                this.showTimerSettings = false;
-            }
         } catch (err) {
             console.error(err);
         }
+    },
+    incrementFocus() {
+        this.customPomodoroDuration = Math.min(180, this.customPomodoroDuration + 1);
+        if (!this.isTimerRunning && !this.isBreakMode) {
+            this.timerMinutes = this.customPomodoroDuration;
+            this.timerSeconds = 0;
+        }
+        this.savePomodoroSettingsDb();
+    },
+    decrementFocus() {
+        this.customPomodoroDuration = Math.max(1, this.customPomodoroDuration - 1);
+        if (!this.isTimerRunning && !this.isBreakMode) {
+            this.timerMinutes = this.customPomodoroDuration;
+            this.timerSeconds = 0;
+        }
+        this.savePomodoroSettingsDb();
+    },
+    incrementBreak() {
+        this.customBreakDuration = Math.min(60, this.customBreakDuration + 1);
+        if (!this.isTimerRunning && this.isBreakMode) {
+            this.timerMinutes = this.customBreakDuration;
+            this.timerSeconds = 0;
+        }
+        this.savePomodoroSettingsDb();
+    },
+    decrementBreak() {
+        this.customBreakDuration = Math.max(1, this.customBreakDuration - 1);
+        if (!this.isTimerRunning && this.isBreakMode) {
+            this.timerMinutes = this.customBreakDuration;
+            this.timerSeconds = 0;
+        }
+        this.savePomodoroSettingsDb();
+    },
+    incrementLoops() {
+        this.timerLoops = Math.min(10, this.timerLoops + 1);
+    },
+    decrementLoops() {
+        this.timerLoops = Math.max(1, this.timerLoops - 1);
+    },
+    triggerGlow() {
+        this.timerGlow = true;
+        setTimeout(() => { this.timerGlow = false; }, 3500);
     }
 }" :class="darkTheme ? 'dark' : ''">
 <head>
@@ -451,7 +492,9 @@
 </head>
 <body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden lg:h-screen lg:overflow-hidden transition-colors duration-500"
     :class="darkTheme ? 'dark' : 'light'"
-    :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'">
+    :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'"
+    @mousemove="if (isDraggingNotes) { notesPosition.x = $event.clientX - dragStart.x; notesPosition.y = $event.clientY - dragStart.y; }"
+    @mouseup="isDraggingNotes = false">
 
     <!-- Immersive Header Panel -->
     <header class="w-full px-6 py-4 flex justify-between items-center z-10">
@@ -484,6 +527,15 @@
                 <x-heroicon-o-trophy class="w-4 h-4 text-yellow-400" />
                 <span><span x-text="points"></span> XP</span>
             </div>
+
+            <!-- Floating Notes Toggle -->
+            <button @click="showNotesWindow = !showNotesWindow" 
+                    class="relative p-2 rounded-xl border transition-all duration-300 hover:scale-105"
+                    :class="showNotesWindow ? (darkTheme ? 'bg-indigo-500/20 border-indigo-400 text-indigo-300' : 'bg-amber-200 border-amber-400 text-amber-950') : (darkTheme ? 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50')"
+                    title="Study Notes">
+                <x-heroicon-o-document-text class="w-5 h-5" />
+                <span class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full" x-text="notes.length"></span>
+            </button>
 
             <!-- Dark Theme Toggle -->
             <button @click="darkTheme = !darkTheme" 
@@ -676,7 +728,7 @@
         <section class="lg:col-span-5 flex flex-col justify-between space-y-4 lg:h-full lg:min-h-0 overflow-hidden">
             
             <!-- Cozy Room Visual (Visual subject in the middle) -->
-            <div class="glass-panel rounded-3xl p-6 flex-grow flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300 min-h-[400px]">
+            <div class="glass-panel rounded-3xl p-6 flex-grow flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300 min-h-[320px]">
                 
                 <!-- Ambient Backdrop Window -->
                 <div class="absolute top-4 left-1/2 -translate-x-1/2 w-52 h-36 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center"
@@ -805,65 +857,67 @@
             </div>
 
             <!-- Pomodoro Timer Panel -->
-            <div class="glass-panel rounded-3xl p-5 flex flex-col items-center justify-center space-y-4">
+            <div class="glass-panel rounded-3xl p-3.5 py-2.5 flex flex-col items-center justify-center space-y-2 transition-all duration-500"
+                 :style="timerGlow ? (darkTheme ? 'border: 2px solid rgba(129,140,248,0.9); box-shadow: 0 0 14px rgba(129,140,248,0.55), inset 0 0 6px rgba(129,140,248,0.15);' : 'border: 2px solid rgba(245,158,11,0.9); box-shadow: 0 0 14px rgba(245,158,11,0.55), inset 0 0 6px rgba(245,158,11,0.15);') : ''">
+                
+                <!-- Header -->
                 <div class="flex items-center justify-between w-full px-2">
                     <div class="flex items-center space-x-2">
-                        <x-heroicon-o-clock class="w-5 h-5" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
-                        <span class="text-sm font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Pomodoro Flow</span>
+                        <x-heroicon-o-clock class="w-4 h-4" ::class="darkTheme ? 'text-indigo-400' : 'text-amber-700'" />
+                        <span class="text-xs font-bold uppercase tracking-wider" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Pomodoro Flow</span>
                     </div>
-                    <!-- Settings Toggle Button -->
-                    <button @click="showTimerSettings = !showTimerSettings" 
-                            class="p-1.5 rounded-lg border transition-all duration-300 hover:scale-105"
-                            :class="darkTheme ? 'bg-slate-800/40 border-slate-700 text-slate-400 hover:text-slate-200' : 'bg-amber-50 border-amber-200 text-amber-700 hover:text-amber-900'">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.43l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                    </button>
                 </div>
 
-                <!-- Focus / Short Break Tabs -->
-                <div class="flex space-x-2 p-1 rounded-xl bg-slate-900/40 border border-slate-700/30 w-full" x-show="!showTimerSettings">
-                    <button @click="isBreakMode = false; clearInterval(timerInterval); isTimerRunning = false; timerMinutes = customPomodoroDuration; timerSeconds = 0"
-                            class="flex-1 py-1 text-xs font-semibold rounded-lg transition-all duration-300"
-                            :class="!isBreakMode ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
-                        Focus
-                    </button>
-                    <button @click="isBreakMode = true; clearInterval(timerInterval); isTimerRunning = false; timerMinutes = customBreakDuration; timerSeconds = 0"
-                            class="flex-1 py-1 text-xs font-semibold rounded-lg transition-all duration-300"
-                            :class="isBreakMode ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' : 'bg-amber-100 text-amber-950') : 'text-slate-400 hover:text-slate-200'">
-                        Short Break
-                    </button>
+                <!-- Loop / Status Indicator -->
+                <div class="text-[10px] font-bold uppercase tracking-wider text-center" :class="darkTheme ? 'text-indigo-400' : 'text-amber-800'">
+                    <template x-if="isTimerRunning">
+                        <span x-text="isBreakMode ? 'Break Time • Loop ' + currentLoop + ' of ' + timerLoops : 'Focusing • Loop ' + currentLoop + ' of ' + timerLoops"></span>
+                    </template>
+                    <template x-if="!isTimerRunning">
+                        <span x-text="timerStatusText ? timerStatusText : 'Ready • Loop ' + currentLoop + ' of ' + timerLoops"></span>
+                    </template>
                 </div>
 
-                <div class="flex items-baseline space-x-1 font-mono text-5xl font-extrabold tracking-widest"
-                     x-show="!showTimerSettings"
+                <!-- Large Time Display -->
+                <div class="flex items-baseline space-x-1 font-mono text-3xl font-extrabold tracking-widest"
                      :class="darkTheme ? 'text-indigo-300 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'text-slate-800'">
                     <span x-text="String(timerMinutes).padStart(2, '0')"></span>
                     <span class="animate-pulse">:</span>
                     <span x-text="String(timerSeconds).padStart(2, '0')"></span>
                 </div>
 
-                <div class="flex space-x-3" x-show="!showTimerSettings">
+                <!-- Controls: Start/Pause, Reset -->
+                <div class="flex space-x-2.5">
                     <button @click="
                         isTimerRunning = !isTimerRunning;
                         if (isTimerRunning) {
+                            timerStatusText = isBreakMode ? 'Break Time!' : 'Focusing (Loop ' + currentLoop + ')';
                             timerInterval = setInterval(() => {
                                 if (timerSeconds === 0) {
                                     if (timerMinutes === 0) {
-                                        clearInterval(timerInterval);
-                                        isTimerRunning = false;
+                                        triggerGlow();
                                         if (!isBreakMode) {
-                                            alert('Focus session completed! Great job. Time for a break.');
                                             completePomodoroDb();
                                             isBreakMode = true;
                                             timerMinutes = customBreakDuration;
                                             timerSeconds = 0;
+                                            timerStatusText = 'Break Time!';
                                         } else {
-                                            alert('Break session completed! Back to focus.');
-                                            isBreakMode = false;
-                                            timerMinutes = customPomodoroDuration;
-                                            timerSeconds = 0;
+                                            if (currentLoop < timerLoops) {
+                                                currentLoop++;
+                                                isBreakMode = false;
+                                                timerMinutes = customPomodoroDuration;
+                                                timerSeconds = 0;
+                                                timerStatusText = 'Focusing (Loop ' + currentLoop + ')';
+                                            } else {
+                                                clearInterval(timerInterval);
+                                                isTimerRunning = false;
+                                                currentLoop = 1;
+                                                isBreakMode = false;
+                                                timerMinutes = customPomodoroDuration;
+                                                timerSeconds = 0;
+                                                timerStatusText = 'Session Completed!';
+                                            }
                                         }
                                     } else {
                                         timerMinutes--;
@@ -876,52 +930,73 @@
                         } else {
                             clearInterval(timerInterval);
                         }
-                    " class="px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 hover:scale-105"
+                    " class="px-3.5 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all duration-300 hover:scale-105"
                        :class="isTimerRunning ? (darkTheme ? 'bg-red-500/20 border border-red-500/40 text-red-300' : 'bg-red-600 text-white') : (darkTheme ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300' : 'bg-amber-600 text-white')">
-                        <span x-text="isTimerRunning ? 'Pause' : 'Start Focus'"></span>
+                        <span x-text="isTimerRunning ? 'Pause' : (isBreakMode ? 'Start Break' : 'Start Focus')"></span>
                     </button>
 
                     <button @click="
                         clearInterval(timerInterval);
                         isTimerRunning = false;
-                        timerMinutes = isBreakMode ? customBreakDuration : customPomodoroDuration;
+                        isBreakMode = false;
+                        currentLoop = 1;
+                        timerMinutes = customPomodoroDuration;
                         timerSeconds = 0;
-                    " class="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all duration-300 hover:scale-105"
+                        timerStatusText = '';
+                    " class="px-3 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border transition-all duration-300 hover:scale-105"
                        :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-900' : 'bg-amber-50 border-amber-200 text-amber-800'">
                         Reset
                     </button>
                 </div>
 
-                <!-- Pomodoro Settings Form -->
-                <div class="w-full flex flex-col space-y-4 p-2 text-left" x-show="showTimerSettings" x-transition>
-                    <h4 class="text-xs font-bold uppercase tracking-wider font-semibold" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Settings</h4>
-                    
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Focus Time (minutes)</label>
-                            <input type="number" x-model.number="customPomodoroDuration" min="1" max="180"
-                                   class="w-full text-xs px-3 py-2 rounded-lg border outline-none transition-all duration-300"
-                                   :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                <!-- Adjusters grid directly below controls -->
+                <div class="grid grid-cols-3 gap-1.5 w-full pt-2.5 border-t" :class="darkTheme ? 'border-slate-800/60' : 'border-slate-200'">
+                    <!-- Focus Control -->
+                    <div class="flex flex-col items-center p-1.5 rounded-xl bg-slate-900/20 border" :class="darkTheme ? 'border-slate-800/40' : 'border-amber-200/50 bg-amber-50/30'">
+                        <span class="text-[8px] uppercase tracking-wider font-bold text-slate-400">Focus</span>
+                        <div class="flex items-center space-x-1 mt-0.5">
+                            <span class="text-xs font-extrabold" x-text="customPomodoroDuration"></span>
+                            <div class="flex flex-col space-y-0.5">
+                                <button @click="incrementFocus()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button @click="decrementFocus()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Break Time (minutes)</label>
-                            <input type="number" x-model.number="customBreakDuration" min="1" max="60"
-                                   class="w-full text-xs px-3 py-2 rounded-lg border outline-none transition-all duration-300"
-                                   :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'" />
+                    </div>
+                    
+                    <!-- Break Control -->
+                    <div class="flex flex-col items-center p-1.5 rounded-xl bg-slate-900/20 border" :class="darkTheme ? 'border-slate-800/40' : 'border-amber-200/50 bg-amber-50/30'">
+                        <span class="text-[8px] uppercase tracking-wider font-bold text-slate-400">Break</span>
+                        <div class="flex items-center space-x-1 mt-0.5">
+                            <span class="text-xs font-extrabold" x-text="customBreakDuration"></span>
+                            <div class="flex flex-col space-y-0.5">
+                                <button @click="incrementBreak()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button @click="decrementBreak()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="flex space-x-2 pt-1">
-                        <button @click="showTimerSettings = false; timerMinutes = isBreakMode ? customBreakDuration : customPomodoroDuration; timerSeconds = 0"
-                                class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-all duration-300 hover:scale-105"
-                                :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-900' : 'bg-amber-50 border-amber-200 text-amber-800'">
-                            Cancel
-                        </button>
-                        <button @click="savePomodoroSettings()"
-                                class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-white transition-all duration-300 hover:scale-105"
-                                :class="darkTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'">
-                            Save
-                        </button>
+                    <!-- Loops Control -->
+                    <div class="flex flex-col items-center p-1.5 rounded-xl bg-slate-900/20 border" :class="darkTheme ? 'border-slate-800/40' : 'border-amber-200/50 bg-amber-50/30'">
+                        <span class="text-[8px] uppercase tracking-wider font-bold text-slate-400">Loops</span>
+                        <div class="flex items-center space-x-1 mt-0.5">
+                            <span class="text-xs font-extrabold" x-text="timerLoops"></span>
+                            <div class="flex flex-col space-y-0.5">
+                                <button @click="incrementLoops()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button @click="decrementLoops()" class="p-0.5 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition leading-none">
+                                    <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -974,82 +1049,6 @@
                 </div>
             </div>
 
-            <!-- Notes Panel -->
-            <div class="glass-panel rounded-2xl p-5 space-y-3 flex-grow flex flex-col min-h-0 min-w-0 w-full">
-                <div class="flex items-center justify-between flex-shrink-0">
-                    <h3 class="font-bold tracking-wide text-sm uppercase" :class="darkTheme ? 'text-indigo-300' : 'text-amber-800'">Study Notes</h3>
-                    <button @click="selectedNote = { id: null, title: '', content: '' }; showNoteModal = true"
-                            class="p-1 rounded-lg border transition-colors hover:scale-105"
-                            :class="darkTheme ? 'bg-slate-800/40 border-slate-700 text-indigo-400' : 'bg-amber-50 border-amber-200 text-amber-700'">
-                        <x-heroicon-o-plus class="w-4 h-4" />
-                    </button>
-                </div>
-                <div class="space-y-2.5 flex-grow overflow-y-auto pr-1 min-h-0 min-w-0 w-full max-h-[180px] lg:max-h-none">
-                    <template x-for="(note, index) in notes" :key="note.id">
-                        <div x-data="{ isDraggable: false }"
-                             :draggable="isDraggable"
-                             @dragstart="draggedNoteIndex = index; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', index);"
-                             @dragover.prevent
-                             @dragenter.prevent
-                             @drop="reorderNotes(draggedNoteIndex, index)"
-                             @dragend="draggedNoteIndex = null; isDraggable = false"
-                             @click="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
-                             class="group relative p-3 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01] flex flex-col min-w-0 w-full"
-                             :class="draggedNoteIndex === index ? 'opacity-30 border-dashed border-indigo-400/60' : (darkTheme ? 'bg-slate-900/20 border-slate-800 hover:bg-slate-900/40' : 'bg-white border-amber-100 hover:bg-amber-50/40')"
-                             style="min-width: 0;">
-                            
-                            <!-- Header with Title & Action Menu -->
-                            <div class="flex items-start justify-between gap-2 min-w-0 w-full">
-                                <span class="text-xs font-bold block min-w-0 flex-grow"
-                                      style="overflow-wrap: break-word; word-break: break-word; min-width: 0;"
-                                      :class="darkTheme ? 'text-slate-200' : 'text-slate-800'"
-                                      x-text="note.title"></span>
-                                
-                                <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0 pointer-events-none group-hover:pointer-events-auto" @click.stop>
-                                    <!-- Drag Handle -->
-                                    <div class="p-1 rounded transition-colors cursor-grab active:cursor-grabbing pointer-events-auto"
-                                         @mousedown="isDraggable = true"
-                                         @mouseup="isDraggable = false"
-                                         @touchstart="isDraggable = true"
-                                         @touchend="isDraggable = false"
-                                         :class="darkTheme ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'"
-                                         title="Drag">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                            <circle cx="9" cy="5" r="1.5" fill="currentColor"/>
-                                            <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
-                                            <circle cx="9" cy="19" r="1.5" fill="currentColor"/>
-                                            <circle cx="15" cy="5" r="1.5" fill="currentColor"/>
-                                            <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
-                                            <circle cx="15" cy="19" r="1.5" fill="currentColor"/>
-                                        </svg>
-                                    </div>
-                                    
-                                    <!-- Edit Button -->
-                                    <button @click.stop="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
-                                            class="p-1 rounded transition-colors pointer-events-auto"
-                                            :class="darkTheme ? 'hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-300' : 'hover:bg-amber-100 text-slate-400 hover:text-amber-800'"
-                                            title="Edit Note">
-                                        <x-heroicon-o-pencil class="w-3.5 h-3.5" />
-                                    </button>
-                                    
-                                    <!-- Delete Button -->
-                                    <button @click.stop="deleteNoteDb(note.id)"
-                                            class="p-1 rounded transition-colors pointer-events-auto"
-                                            :class="darkTheme ? 'hover:bg-red-500/10 text-slate-400 hover:text-red-400' : 'hover:bg-red-50 text-slate-400 hover:text-red-650'"
-                                            title="Delete Note">
-                                        <x-heroicon-o-trash class="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <!-- Content Preview -->
-                            <p class="text-[10px] text-slate-400 mt-1 truncate min-w-0"
-                               x-text="note.content ? (note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')) : ''"></p>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
             <!-- Mini Calendar Widget -->
             <div class="glass-panel rounded-2xl p-5 space-y-3">
                 <div class="flex items-center justify-between">
@@ -1088,6 +1087,113 @@
         </section>
 
     </main>
+
+    <!-- Floating Draggable Notes Board -->
+    <div x-show="showNotesWindow"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 scale-100"
+         x-transition:leave-end="opacity-0 scale-95"
+         class="fixed z-40 w-80 rounded-2xl glass-panel border shadow-2xl flex flex-col overflow-hidden"
+         :class="darkTheme ? 'border-slate-800' : 'border-amber-200'"
+         :style="`left: ${notesPosition.x}px; top: ${notesPosition.y}px;`"
+         @mousedown="
+             if ($event.target.closest('.drag-handle')) {
+                 isDraggingNotes = true;
+                 dragStart = { x: $event.clientX - notesPosition.x, y: $event.clientY - notesPosition.y };
+             }
+         ">
+         <!-- Drag Handle / Header -->
+         <div class="drag-handle cursor-move px-4 py-3 border-b flex justify-between items-center bg-slate-900/30"
+              :class="darkTheme ? 'border-slate-800/80' : 'border-amber-150'">
+              <div class="flex items-center space-x-1.5 text-xs font-bold uppercase tracking-wider"
+                   :class="darkTheme ? 'text-indigo-300' : 'text-amber-900'">
+                  <x-heroicon-o-document-text class="w-4 h-4" />
+                  <span>Notes</span>
+              </div>
+              <div class="flex items-center space-x-1.5">
+                  <button @click="selectedNote = { id: null, title: '', content: '' }; showNoteModal = true"
+                          class="p-1 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition-colors">
+                      <x-heroicon-o-plus class="w-3.5 h-3.5" />
+                  </button>
+                  <button @click="showNotesWindow = false"
+                          class="p-1 rounded hover:bg-slate-700/20 text-slate-400 hover:text-slate-200 transition-colors">
+                      <x-heroicon-o-x-mark class="w-3.5 h-3.5" />
+                  </button>
+              </div>
+         </div>
+         
+         <!-- Content Area -->
+         <div class="p-4 space-y-2.5 max-h-[300px] overflow-y-auto pr-2">
+             <template x-for="(note, index) in notes" :key="note.id">
+                 <div x-data="{ isDraggable: false }"
+                      :draggable="isDraggable"
+                      @dragstart="draggedNoteIndex = index; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', index);"
+                      @dragover.prevent
+                      @dragenter.prevent
+                      @drop="reorderNotes(draggedNoteIndex, index)"
+                      @dragend="draggedNoteIndex = null; isDraggable = false"
+                      @click="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
+                      class="group relative p-3 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01] flex flex-col min-w-0 w-full"
+                      :class="draggedNoteIndex === index ? 'opacity-30 border-dashed border-indigo-400/60' : (darkTheme ? 'bg-slate-900/20 border-slate-800 hover:bg-slate-900/40' : 'bg-white border-amber-100 hover:bg-amber-50/40')"
+                      style="min-width: 0;">
+                      
+                      <!-- Header with Title & Action Menu -->
+                      <div class="flex items-start justify-between gap-2 min-w-0 w-full">
+                          <span class="text-xs font-bold block min-w-0 flex-grow"
+                                style="overflow-wrap: break-word; word-break: break-word; min-width: 0;"
+                                :class="darkTheme ? 'text-slate-200' : 'text-slate-800'"
+                                x-text="note.title"></span>
+                          
+                          <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0 pointer-events-none group-hover:pointer-events-auto" @click.stop>
+                              <!-- Drag Handle -->
+                              <div class="p-1 rounded transition-colors cursor-grab active:cursor-grabbing pointer-events-auto"
+                                   @mousedown="isDraggable = true"
+                                   @mouseup="isDraggable = false"
+                                   @touchstart="isDraggable = true"
+                                   @touchend="isDraggable = false"
+                                   :class="darkTheme ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'"
+                                   title="Drag">
+                                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                      <circle cx="9" cy="5" r="1.5" fill="currentColor"/>
+                                      <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
+                                      <circle cx="9" cy="19" r="1.5" fill="currentColor"/>
+                                      <circle cx="15" cy="5" r="1.5" fill="currentColor"/>
+                                      <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
+                                      <circle cx="15" cy="19" r="1.5" fill="currentColor"/>
+                                  </svg>
+                              </div>
+                              
+                              <!-- Edit Button -->
+                              <button @click.stop="selectedNote = { id: note.id, title: note.title, content: note.content }; showNoteModal = true"
+                                      class="p-1 rounded transition-colors pointer-events-auto"
+                                      :class="darkTheme ? 'hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-300' : 'hover:bg-amber-100 text-slate-400 hover:text-amber-800'"
+                                      title="Edit Note">
+                                  <x-heroicon-o-pencil class="w-3.5 h-3.5" />
+                              </button>
+                              
+                              <!-- Delete Button -->
+                              <button @click.stop="deleteNoteDb(note.id)"
+                                      class="p-1 rounded transition-colors pointer-events-auto"
+                                      :class="darkTheme ? 'hover:bg-red-500/10 text-slate-400 hover:text-red-400' : 'hover:bg-red-50 text-slate-400 hover:text-red-650'"
+                                      title="Delete Note">
+                                  <x-heroicon-o-trash class="w-3.5 h-3.5" />
+                              </button>
+                          </div>
+                      </div>
+                      
+                      <!-- Content Preview -->
+                      <p class="text-[10px] text-slate-400 mt-1 truncate min-w-0"
+                         x-text="note.content ? (note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')) : ''"></p>
+                 </div>
+             </template>
+             <div x-show="notes.length === 0" class="text-center py-6 text-xs text-slate-400">
+                 No notes yet. Click the + button above to create one!
+             </div>
+         </div>
+    </div>
 
     <!-- Notes Detail Modal -->
     <div x-show="showNoteModal" 
