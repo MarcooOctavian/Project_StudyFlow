@@ -18,6 +18,20 @@ class DashboardController extends Controller
     {
         $user = Auth::user();
 
+        // Self-healing setup for user themes
+        if (empty($user->unlocked_themes)) {
+            $user->unlocked_themes = ['cozy_studio'];
+            $user->save();
+        }
+        if ($user->theme_mode === 'light' || $user->theme_mode === 'dark') {
+            $user->theme_mode = $user->theme_mode === 'light' ? 'cozy_studio_light' : 'cozy_studio_dark';
+            $user->save();
+        }
+        if (!$user->theme_mode) {
+            $user->theme_mode = 'cozy_studio_dark';
+            $user->save();
+        }
+
         // 1. Fetch Daily Quote
         $quote = $user->dailyQuote ?? DailyQuote::where('is_active', true)->first();
 
@@ -64,22 +78,7 @@ class DashboardController extends Controller
         $notes = $user->notes()->get();
 
         // 6. Fetch Quests with User Progress
-        // Eagerly insert progress if not existing (Factory/Observer-like helper)
-        $allQuests = Quest::all();
-        foreach ($allQuests as $quest) {
-            UserQuestProgress::firstOrCreate([
-                'user_id' => $user->id,
-                'quest_id' => $quest->id,
-            ], [
-                'current_value' => 0,
-                'completed' => false,
-            ]);
-        }
-
-        $quests = Quest::join('user_quest_progress', 'quests.id', '=', 'user_quest_progress.quest_id')
-            ->where('user_quest_progress.user_id', $user->id)
-            ->select('quests.*', 'user_quest_progress.current_value', 'user_quest_progress.completed', 'user_quest_progress.id as progress_id')
-            ->get();
+        $quests = $this->getQuests($user);
 
         // 7. Mini Calendar Tasks
         // Find tasks due this month to mark on calendar
@@ -268,7 +267,7 @@ class DashboardController extends Controller
     public function completePomodoro(Request $request)
     {
         $user = Auth::user();
-        $duration = $user->pomodoro_duration ?? 25;
+        $duration = $request->input('duration', $user->pomodoro_duration ?? 25);
 
         // Create pomodoro session
         $session = $user->pomodoroSessions()->create([
@@ -277,8 +276,8 @@ class DashboardController extends Controller
             'duration_minutes' => $duration,
         ]);
 
-        // Award +50 XP
-        $user->total_points += 50;
+        // Award dynamic XP (1 XP per minute)
+        $user->total_points += $duration;
         $user->save();
 
         // Update Quest Progress
@@ -364,9 +363,117 @@ class DashboardController extends Controller
 
     private function getQuests($user)
     {
+        $this->initializeAndResetQuests($user);
+
         return Quest::join('user_quest_progress', 'quests.id', '=', 'user_quest_progress.quest_id')
             ->where('user_quest_progress.user_id', $user->id)
             ->select('quests.*', 'user_quest_progress.current_value', 'user_quest_progress.completed', 'user_quest_progress.id as progress_id')
             ->get();
+    }
+
+    private function initializeAndResetQuests($user)
+    {
+        $allQuests = Quest::all();
+        $today = today();
+        $startOfWeek = now()->startOfWeek();
+
+        foreach ($allQuests as $quest) {
+            $prog = UserQuestProgress::firstOrCreate([
+                'user_id' => $user->id,
+                'quest_id' => $quest->id,
+            ], [
+                'current_value' => 0,
+                'completed' => false,
+                'reset_date' => $today,
+            ]);
+
+            // Reset logic based on quest type
+            if ($quest->type === 'daily') {
+                if (!$prog->reset_date || $prog->reset_date->toDateString() !== $today->toDateString()) {
+                    $prog->current_value = 0;
+                    $prog->completed = false;
+                    $prog->reset_date = $today;
+                    $prog->save();
+                }
+            } elseif ($quest->type === 'weekly') {
+                if (!$prog->reset_date || $prog->reset_date->lt($startOfWeek)) {
+                    $prog->current_value = 0;
+                    $prog->completed = false;
+                    $prog->reset_date = $today;
+                    $prog->save();
+                }
+            }
+        }
+    }
+
+    public function buyTheme(Request $request)
+    {
+        $request->validate([
+            'theme' => 'required|string',
+        ]);
+
+        $theme = $request->theme;
+        $costs = [
+            'sakura' => 3000,
+        ];
+
+        if (!array_key_exists($theme, $costs)) {
+            return response()->json(['success' => false, 'message' => 'Invalid theme selected.'], 400);
+        }
+
+        $user = Auth::user();
+        $unlocked = $user->unlocked_themes ?? ['cozy_studio'];
+
+        if (in_array($theme, $unlocked)) {
+            return response()->json(['success' => false, 'message' => 'Theme already unlocked.'], 400);
+        }
+
+        $cost = $costs[$theme];
+        if ($user->total_points < $cost) {
+            return response()->json(['success' => false, 'message' => 'Insufficient XP to buy this theme.'], 400);
+        }
+
+        $user->total_points -= $cost;
+        $unlocked[] = $theme;
+        $user->unlocked_themes = $unlocked;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Theme purchased successfully!',
+            'points' => $user->total_points,
+            'unlocked_themes' => $user->unlocked_themes,
+        ]);
+    }
+
+    public function changeTheme(Request $request)
+    {
+        $request->validate([
+            'theme_mode' => 'required|string',
+        ]);
+
+        $user = Auth::user();
+        $themeMode = $request->theme_mode;
+
+        // Extract base theme name (e.g. cozy_studio_dark -> cozy_studio)
+        $baseTheme = $themeMode;
+        if (str_starts_with($themeMode, 'cozy_studio_')) {
+            $baseTheme = 'cozy_studio';
+        }
+
+        $unlocked = $user->unlocked_themes ?? ['cozy_studio'];
+
+        if (!in_array($baseTheme, $unlocked)) {
+            return response()->json(['success' => false, 'message' => 'Theme is locked.'], 400);
+        }
+
+        $user->theme_mode = $themeMode;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Theme updated successfully!',
+            'theme_mode' => $user->theme_mode,
+        ]);
     }
 }

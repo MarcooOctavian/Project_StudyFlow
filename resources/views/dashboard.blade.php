@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" x-data="{ 
-    darkTheme: true,
+    themeMode: '{{ $user->theme_mode }}',
+    unlockedThemes: {{ json_encode($user->unlocked_themes ?? ['cozy_studio']) }},
+    showShopWindow: false,
+    shopPosition: { x: (window.innerWidth ? window.innerWidth / 2 - 160 : 400), y: 150 },
+    isDraggingShop: false,
+    showThemeDropdown: false,
+    get darkTheme() { return this.themeMode === 'cozy_studio_dark'; },
     lampOn: true,
     mugSteam: true,
     activeCategory: '',
@@ -287,7 +293,10 @@
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                }
+                },
+                body: JSON.stringify({
+                    duration: this.customPomodoroDuration
+                })
             });
             const data = await res.json();
             if (data.success) {
@@ -365,6 +374,48 @@
     triggerGlow() {
         this.timerGlow = true;
         setTimeout(() => { this.timerGlow = false; }, 3500);
+    },
+    async buyThemeDb(theme) {
+        try {
+            const res = await fetch('/dashboard/shop/buy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ theme })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.points = data.points;
+                this.unlockedThemes = data.unlocked_themes;
+                alert(data.message);
+            } else {
+                alert(data.message);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    },
+    async setThemeDb(themeMode) {
+        try {
+            const res = await fetch('/dashboard/theme/change', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ theme_mode: themeMode })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.themeMode = data.theme_mode;
+            } else {
+                alert(data.message);
+            }
+        } catch (err) {
+            console.error(err);
+        }
     }
 }" :class="darkTheme ? 'dark' : ''">
 <head>
@@ -488,13 +539,47 @@
             transform: rotate(-90deg);
             transform-origin: 50% 50%;
         }
+
+        /* Sakura Theme Overrides */
+        body.sakura {
+            color: #70424d;
+        }
+        body.sakura .glass-panel {
+            background: rgba(255, 235, 240, 0.45);
+            border: 1px solid rgba(255, 174, 185, 0.35);
+            box-shadow: 0 8px 32px 0 rgba(219, 112, 147, 0.1);
+        }
+        body.sakura .text-slate-100, body.sakura .text-slate-200, body.sakura .text-slate-300, body.sakura .text-slate-400 {
+            color: #7a4b57;
+        }
+        body.sakura .text-indigo-300, body.sakura .text-indigo-400, body.sakura .text-indigo-200 {
+            color: #db7093;
+        }
+        body.sakura .bg-slate-900\/30 {
+            background: rgba(255, 192, 203, 0.2);
+        }
+        body.sakura .border-slate-800 {
+            border-color: rgba(255, 182, 193, 0.35);
+        }
+        body.sakura ::-webkit-scrollbar-thumb {
+            background: rgba(219, 112, 147, 0.3);
+        }
+        body.sakura ::-webkit-scrollbar-thumb:hover {
+            background: rgba(219, 112, 147, 0.55);
+        }
+        body.sakura ::-webkit-scrollbar-track {
+            background: rgba(255, 240, 245, 0.35);
+        }
     </style>
 </head>
 <body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden lg:h-screen lg:overflow-hidden transition-colors duration-500"
-    :class="darkTheme ? 'dark' : 'light'"
-    :style="darkTheme ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)'"
-    @mousemove="if (isDraggingNotes) { notesPosition.x = $event.clientX - dragStart.x; notesPosition.y = $event.clientY - dragStart.y; }"
-    @mouseup="isDraggingNotes = false">
+    :class="[themeMode, darkTheme ? 'dark' : 'light']"
+    :style="themeMode === 'cozy_studio_dark' ? 'background: linear-gradient(135deg, #090514 0%, #150d2a 50%, #05020a 100%)' : (themeMode === 'cozy_studio_light' ? 'background: linear-gradient(135deg, #fef4e8 0%, #f7d2bc 50%, #fbd5c6 100%)' : 'background: linear-gradient(135deg, #fff0f5 0%, #ffe4e1 50%, #ffd1dc 100%)')"
+    @mousemove="
+        if (isDraggingNotes) { notesPosition.x = $event.clientX - dragStart.x; notesPosition.y = $event.clientY - dragStart.y; }
+        if (isDraggingShop) { shopPosition.x = $event.clientX - dragStart.x; shopPosition.y = $event.clientY - dragStart.y; }
+    "
+    @mouseup="isDraggingNotes = false; isDraggingShop = false">
 
     @include('dashboard.header')
 
@@ -523,6 +608,7 @@
     </main>
 
     @include('dashboard.notes')
+    @include('dashboard.shop')
 
     <!-- Immersive Footer Panel -->
     <footer class="w-full px-6 py-3 flex justify-between items-center text-[10px] tracking-wider uppercase font-bold"
@@ -532,5 +618,4 @@
     </footer>
 
 </body>
-</html>>
 </html>
