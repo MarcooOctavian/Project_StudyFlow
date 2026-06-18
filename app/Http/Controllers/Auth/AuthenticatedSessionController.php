@@ -28,6 +28,14 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        $user = Auth::user();
+        if ($user) {
+            $randomQuote = \App\Models\DailyQuote::inRandomOrder()->first();
+            if ($randomQuote) {
+                $user->update(['current_quote_id' => $randomQuote->id]);
+            }
+        }
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
