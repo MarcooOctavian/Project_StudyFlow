@@ -14,10 +14,9 @@ class CategorySeeder extends Seeder
         if (!$user) return;
 
         $categories = [
-            ['name' => 'Study', 'color' => '#3490dc', 'icon' => 'book'],
-            ['name' => 'Project', 'color' => '#38c172', 'icon' => 'code'],
-            ['name' => 'Personal', 'color' => '#f66d9b', 'icon' => 'user'],
-            ['name' => 'Urgent', 'color' => '#e3342f', 'icon' => 'exclamation-triangle'],
+            ['name' => 'Work', 'color' => '#38c172', 'icon' => 'briefcase'],
+            ['name' => 'Habit', 'color' => '#f66d9b', 'icon' => 'check-circle'],
+            ['name' => 'Study', 'color' => '#3490dc', 'icon' => 'academic-cap'],
         ];
 
         foreach ($categories as $cat) {

@@ -27,14 +27,14 @@
                 :class="activeCategory === '' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-amber-200 text-amber-900') : (darkTheme ? 'bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200' : 'bg-amber-50 border border-transparent text-amber-700/80')">
             All
         </button>
-        @foreach($categories as $category)
-        <button @click="activeCategory = '{{ $category->id }}'"
-                class="px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-300 flex items-center space-x-1"
-                :class="activeCategory === '{{ $category->id }}' ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-amber-200 text-amber-900') : (darkTheme ? 'bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200' : 'bg-amber-50 border border-transparent text-amber-700/80')">
-            <span class="w-2 h-2 rounded-full" style="background-color: {{ $category->color ?? '#6366f1' }}"></span>
-            <span>{{ $category->name }}</span>
-        </button>
-        @endforeach
+        <template x-for="cat in categories" :key="cat.id">
+            <button @click="activeCategory = cat.id"
+                    class="px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-300 flex items-center space-x-1"
+                    :class="activeCategory == cat.id ? (darkTheme ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : (themeMode === 'sakura' ? 'bg-pink-100 text-pink-700' : (themeMode === 'sky' ? 'bg-sky-100 text-sky-700' : (themeMode === 'monochrome' ? 'bg-neutral-800 text-white border-neutral-900' : 'bg-amber-200 text-amber-900')))) : (darkTheme ? 'bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200' : (themeMode === 'sakura' ? 'bg-pink-50 border border-transparent text-pink-600 hover:bg-pink-100' : (themeMode === 'sky' ? 'bg-sky-50 border border-transparent text-sky-600 hover:bg-sky-100' : (themeMode === 'monochrome' ? 'bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-100' : 'bg-amber-50 border border-transparent text-amber-700/80'))))">
+                <span class="w-2 h-2 rounded-full" :style="themeMode === 'monochrome' ? 'background-color: #000000;' : 'background-color: ' + (cat.color ?? '#6366f1')"></span>
+                <span x-text="cat.name"></span>
+            </button>
+        </template>
     </div>
 
     <!-- Status Tracker Tabs -->
@@ -83,6 +83,12 @@
                                     task.priority === 'high' ? 'bg-red-500/10 text-red-400' :
                                     task.priority === 'medium' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-emerald-500/10 text-emerald-400'
                                   " x-text="task.priority"></span>
+                            <!-- Category Tagging -->
+                            <template x-if="task.category_id">
+                                <span class="px-1.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold"
+                                      :style="themeMode === 'monochrome' ? 'background: #ffffff; color: #000000; border: 1px solid #000000;' : 'background-color: ' + (categories.find(c => c.id == task.category_id)?.color ?? '#6366f1') + '20; color: ' + (categories.find(c => c.id == task.category_id)?.color ?? '#6366f1') + ';'"
+                                      x-text="categories.find(c => c.id == task.category_id)?.name"></span>
+                            </template>
                             <template x-if="task.due_date">
                                 <span class="text-slate-400 font-semibold" x-text="task.due_date"></span>
                             </template>
@@ -170,9 +176,9 @@
                         class="px-3 py-2 rounded-xl border outline-none transition-all duration-300 font-medium"
                         :class="darkTheme ? 'bg-slate-900/60 border-slate-700 text-slate-200 focus:border-indigo-500' : 'bg-amber-50 border-amber-200 text-slate-800 focus:border-amber-500'">
                     <option value="">No Category</option>
-                    @foreach($categories as $category)
-                        <option value="{{ $category->id }}">{{ $category->name }}</option>
-                    @endforeach
+                    <template x-for="cat in categories" :key="cat.id">
+                        <option :value="cat.id" x-text="cat.name"></option>
+                    </template>
                 </select>
             </div>
 

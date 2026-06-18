@@ -32,6 +32,18 @@ class DashboardController extends Controller
             $user->save();
         }
 
+        // Self-healing setup for user categories
+        if ($user->categories()->count() === 0) {
+            $defaultCategories = [
+                ['name' => 'Work', 'color' => '#38c172', 'icon' => 'briefcase'],
+                ['name' => 'Habit', 'color' => '#f66d9b', 'icon' => 'check-circle'],
+                ['name' => 'Study', 'color' => '#3490dc', 'icon' => 'academic-cap'],
+            ];
+            foreach ($defaultCategories as $cat) {
+                $user->categories()->create($cat);
+            }
+        }
+
         // 1. Fetch Daily Quote
         $quote = $user->dailyQuote ?? DailyQuote::where('is_active', true)->first();
 
@@ -415,6 +427,9 @@ class DashboardController extends Controller
         $theme = $request->theme;
         $costs = [
             'sakura' => 3000,
+            'sky' => 500,
+            'monochrome' => 1000,
+            'pixel' => 5000,
         ];
 
         if (!array_key_exists($theme, $costs)) {

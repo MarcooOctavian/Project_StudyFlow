@@ -27,7 +27,7 @@
         <div class="relative" @click.away="showThemeDropdown = false">
             <button @click="showThemeDropdown = !showThemeDropdown"
                     class="p-2 rounded-xl border transition-all duration-300 hover:scale-105 flex items-center justify-center"
-                    :class="darkTheme ? 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800' : (themeMode === 'sakura' ? 'bg-pink-100/50 border-pink-300 text-pink-700 hover:bg-pink-100' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50')"
+                    :class="darkTheme ? 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800' : (themeMode === 'sakura' ? 'bg-pink-100/50 border-pink-300 text-pink-700 hover:bg-pink-100' : (themeMode === 'sky' ? 'bg-sky-100/50 border-sky-300 text-sky-700 hover:bg-sky-100' : (themeMode === 'monochrome' ? 'bg-neutral-100 border-neutral-300 text-neutral-850 hover:bg-neutral-200' : (themeMode === 'pixel' ? 'bg-purple-100/50 border-purple-300 text-purple-700 hover:bg-purple-100' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50'))))"
                     title="Choose Workspace Theme">
                 <x-heroicon-o-swatch class="w-5 h-5" />
             </button>
@@ -36,7 +36,7 @@
             <div x-show="showThemeDropdown"
                  x-transition
                  class="absolute right-0 mt-2 w-48 rounded-xl shadow-xl border z-50 p-1.5"
-                 :class="darkTheme ? 'bg-slate-900 border-slate-800' : (themeMode === 'sakura' ? 'bg-pink-50 border-pink-200' : 'bg-white border-amber-100')"
+                 :class="darkTheme ? 'bg-slate-900 border-slate-800' : (themeMode === 'sakura' ? 'bg-pink-50 border-pink-200' : (themeMode === 'sky' ? 'bg-sky-50 border-sky-200' : (themeMode === 'monochrome' ? 'bg-white border-neutral-300' : (themeMode === 'pixel' ? 'bg-purple-50 border-purple-200' : 'bg-white border-amber-100'))))"
                  style="display: none;">
                 
                 <!-- Cozy Studio Dark Option -->
@@ -54,7 +54,7 @@
                 </button>
 
                 <!-- Premium Themes Section -->
-                <div class="px-3 py-1 text-[9px] uppercase tracking-wider font-extrabold text-slate-400 border-t my-1" :class="darkTheme ? 'border-slate-800' : 'border-slate-100'">Unlocked Themes</div>
+                <div class="px-3 py-1 text-[9px] uppercase tracking-wider font-extrabold text-slate-400 border-t my-1" :class="darkTheme ? 'border-slate-800' : 'border-slate-150'">Unlocked Themes</div>
 
                 <!-- Sakura Theme -->
                 <template x-if="unlockedThemes.includes('sakura')">
@@ -70,20 +70,65 @@
                         <x-heroicon-o-lock-closed class="w-3.5 h-3.5 text-slate-500" />
                     </div>
                 </template>
+
+                <!-- Sky Theme -->
+                <template x-if="unlockedThemes.includes('sky')">
+                    <button @click="setThemeDb('sky'); showThemeDropdown = false"
+                            class="w-full text-left px-3 py-2 text-xs font-semibold rounded-lg flex items-center justify-between transition"
+                            :class="themeMode === 'sky' ? 'bg-sky-100 text-sky-700 font-bold' : 'text-sky-500 hover:bg-sky-50 hover:text-sky-700'">
+                        <span>Clear Sky</span>
+                    </button>
+                </template>
+                <template x-if="!unlockedThemes.includes('sky')">
+                    <div class="px-3 py-2 text-xs font-semibold text-slate-400 flex items-center justify-between opacity-50">
+                        <span>Clear Sky</span>
+                        <x-heroicon-o-lock-closed class="w-3.5 h-3.5 text-slate-500" />
+                    </div>
+                </template>
+
+                <!-- Monochrome Theme -->
+                <template x-if="unlockedThemes.includes('monochrome')">
+                    <button @click="setThemeDb('monochrome'); showThemeDropdown = false"
+                            class="w-full text-left px-3 py-2 text-xs font-semibold rounded-lg flex items-center justify-between transition"
+                            :class="themeMode === 'monochrome' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'">
+                        <span>Monochrome</span>
+                    </button>
+                </template>
+                <template x-if="!unlockedThemes.includes('monochrome')">
+                    <div class="px-3 py-2 text-xs font-semibold text-slate-400 flex items-center justify-between opacity-50">
+                        <span>Monochrome</span>
+                        <x-heroicon-o-lock-closed class="w-3.5 h-3.5 text-slate-500" />
+                    </div>
+                </template>
+
+                <!-- Pixel Theme -->
+                <template x-if="unlockedThemes.includes('pixel')">
+                    <button @click="setThemeDb('pixel'); showThemeDropdown = false"
+                            class="w-full text-left px-3 py-2 text-xs font-semibold rounded-lg flex items-center justify-between transition"
+                            :class="themeMode === 'pixel' ? 'bg-purple-100 text-purple-700 font-bold' : 'text-purple-500 hover:bg-purple-50 hover:text-purple-700'">
+                        <span>Retro Pixel</span>
+                    </button>
+                </template>
+                <template x-if="!unlockedThemes.includes('pixel')">
+                    <div class="px-3 py-2 text-xs font-semibold text-slate-400 flex items-center justify-between opacity-50">
+                        <span>Retro Pixel</span>
+                        <x-heroicon-o-lock-closed class="w-3.5 h-3.5 text-slate-500" />
+                    </div>
+                </template>
             </div>
         </div>
 
         <!-- Shop Toggle -->
         <button @click="showShopWindow = !showShopWindow" 
                 class="p-2 rounded-xl border transition-all duration-300 hover:scale-105"
-                :class="showShopWindow ? 'bg-pink-500/20 border-pink-400 text-pink-400' : (darkTheme ? 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800' : (themeMode === 'sakura' ? 'bg-pink-100/50 border-pink-300 text-pink-700 hover:bg-pink-100' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50'))"
+                :class="showShopWindow ? 'bg-pink-500/20 border-pink-400 text-pink-400' : (darkTheme ? 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800' : (themeMode === 'sakura' ? 'bg-pink-100/50 border-pink-300 text-pink-700 hover:bg-pink-100' : (themeMode === 'sky' ? 'bg-sky-100/50 border-sky-300 text-sky-700 hover:bg-sky-100' : (themeMode === 'monochrome' ? 'bg-neutral-100 border-neutral-300 text-neutral-850 hover:bg-neutral-200' : (themeMode === 'pixel' ? 'bg-purple-100/50 border-purple-300 text-purple-700 hover:bg-purple-100' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50')))))"
                 title="Theme Shop">
             <x-heroicon-o-shopping-bag class="w-5 h-5" />
         </button>
 
         <!-- Points Panel -->
         <div class="flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all duration-300"
-             :class="darkTheme ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-200' : (themeMode === 'sakura' ? 'bg-pink-100/30 border-pink-300 text-pink-700' : 'bg-amber-50 border-amber-200 text-amber-800')">
+             :class="darkTheme ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-200' : (themeMode === 'sakura' ? 'bg-pink-100/30 border-pink-300 text-pink-700' : (themeMode === 'sky' ? 'bg-sky-100/30 border-sky-300 text-sky-700' : (themeMode === 'monochrome' ? 'bg-neutral-100 border-neutral-300 text-neutral-850' : (themeMode === 'pixel' ? 'bg-purple-100/30 border-purple-300 text-purple-700' : 'bg-amber-50 border-amber-200 text-amber-800'))))">
             <x-heroicon-o-trophy class="w-4 h-4 text-yellow-400" />
             <span><span x-text="points"></span> XP</span>
         </div>
